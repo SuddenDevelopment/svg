@@ -22,6 +22,8 @@ import {
 } from './lib/svg-normalization';
 
 type PreviewTab = 'preview' | 'source';
+type WorkspaceSection = 'file' | 'inspect' | 'repair' | 'export';
+type InspectorTab = 'overview' | 'selection' | 'readiness' | 'warnings';
 
 type ExportReport = {
   action: 'download' | 'copy';
@@ -30,6 +32,8 @@ type ExportReport = {
   applied: string[];
   remaining: string[];
 };
+
+type PrimaryNavId = WorkspaceSection | 'style' | 'animate' | 'interact';
 
 const exportPresetCards: Array<{ id: ExportVariant; title: string; description: string }> = [
   {
@@ -49,25 +53,77 @@ const exportPresetCards: Array<{ id: ExportVariant; title: string; description: 
   },
 ];
 
-const modeCards = [
+const primaryNavItems: Array<{
+  id: PrimaryNavId;
+  label: string;
+  shortLabel: string;
+  enabled: boolean;
+}> = [
   {
-    title: 'Clean And Edit',
-    description: 'Normalize structure, inspect SVG content, and prepare portable exports.',
-    status: 'Live now',
+    id: 'file',
+    label: 'File',
+    shortLabel: 'Fi',
+    enabled: true,
   },
   {
-    title: 'Repair For Blender',
-    description: 'Convert risky SVG features into geometry-friendly output for Blender import.',
-    status: 'Next pass',
+    id: 'inspect',
+    label: 'Inspect',
+    shortLabel: 'In',
+    enabled: true,
   },
   {
-    title: 'Enhance SVG',
-    description: 'Author self-contained color systems, animation, and interaction inside the SVG.',
-    status: 'Planned',
+    id: 'repair',
+    label: 'Repair',
+    shortLabel: 'Re',
+    enabled: true,
+  },
+  {
+    id: 'style',
+    label: 'Style',
+    shortLabel: 'St',
+    enabled: false,
+  },
+  {
+    id: 'animate',
+    label: 'Animate',
+    shortLabel: 'An',
+    enabled: false,
+  },
+  {
+    id: 'interact',
+    label: 'Interact',
+    shortLabel: 'Ix',
+    enabled: false,
+  },
+  {
+    id: 'export',
+    label: 'Export',
+    shortLabel: 'Ex',
+    enabled: true,
   },
 ];
 
 const featuredTags = ['path', 'text', 'image', 'use', 'defs', 'style', 'animate', 'animateTransform', 'set'];
+const inspectorTabsBySection: Record<WorkspaceSection, InspectorTab[]> = {
+  file: ['overview', 'warnings'],
+  inspect: ['overview', 'selection', 'warnings'],
+  repair: ['overview', 'readiness', 'warnings'],
+  export: ['overview', 'readiness', 'warnings'],
+};
+
+const defaultInspectorTabBySection: Record<WorkspaceSection, InspectorTab> = {
+  file: 'overview',
+  inspect: 'selection',
+  repair: 'readiness',
+  export: 'readiness',
+};
+
+const inspectorTabLabels: Record<InspectorTab, string> = {
+  overview: 'Overview',
+  selection: 'Selection',
+  readiness: 'Readiness',
+  warnings: 'Warnings',
+};
 
 function getReadinessLabel(status: Analysis['exportReadiness']['status']) {
   switch (status) {
@@ -100,6 +156,10 @@ function App() {
   const [selectedExportPreset, setSelectedExportPreset] = useState<ExportVariant>('safe');
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFontAsset[]>([]);
   const [fontMappings, setFontMappings] = useState<FontMapping>({});
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>('file');
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
+  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
   const deferredSource = useDeferredValue(source);
   const textOptions: TextConversionOptions = {
     uploadedFonts,
@@ -196,6 +256,7 @@ function App() {
   const topTags = Object.entries(analysis?.tagCounts ?? {})
     .sort((left, right) => right[1] - left[1])
     .slice(0, 8);
+  const availableInspectorTabs = inspectorTabsBySection[activeSection];
   const selectedNode = selectedNodeId && analysis ? analysis.nodesById[selectedNodeId] : null;
   const normalizedExport = (() => {
     try {
@@ -212,6 +273,17 @@ function App() {
       + analysis.opportunities.bakeableContainerTransformCount
       + analysis.opportunities.expandableUseCount
     : 0;
+  const statusSummary = analysis
+    ? `${analysis.totalElements} elements • ${analysis.exportReadiness.autoFixCount} auto-fixable • ${analysis.exportReadiness.blockerCount} blocked`
+    : parseError
+      ? 'Invalid SVG markup'
+      : 'Load an SVG to begin';
+
+  useEffect(() => {
+    if (!availableInspectorTabs.includes(inspectorTab)) {
+      setInspectorTab(defaultInspectorTabBySection[activeSection]);
+    }
+  }, [activeSection, availableInspectorTabs, inspectorTab]);
 
   function updateFontMapping(familyKey: string, fontId: string) {
     setFontMappings((current) => {
@@ -522,6 +594,575 @@ function App() {
     }
   }
 
+  function selectSection(section: WorkspaceSection) {
+    setActiveSection(section);
+    setInspectorTab(defaultInspectorTabBySection[section]);
+  }
+
+  function renderFileSection() {
+    return (
+      <>
+        <section className="status-card compact-card">
+          <p className="status-label">Current file</p>
+          <strong>{fileName}</strong>
+          <p>{statusSummary}</p>
+        </section>
+
+        <section className="editor-card section-card">
+          <label className="editor-label" htmlFor={sourceId}>SVG source</label>
+          <textarea
+            id={sourceId}
+            className="source-editor"
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            spellCheck={false}
+          />
+        </section>
+      </>
+    );
+  }
+
+  function renderInspectSection() {
+    return (
+      <>
+        <section className="status-card compact-card">
+          <p className="status-label">Selection</p>
+          <strong>{selectedNode ? `<${selectedNode.name}>` : 'No element selected'}</strong>
+          <p>
+            {selectedNode
+              ? selectedNode.textPreview || 'This element does not expose direct text content.'
+              : 'Select an element in the preview to inspect its attributes and related warnings.'}
+          </p>
+        </section>
+
+        <section className="focus-card section-card quick-stats-card">
+          <h3>Quick stats</h3>
+          <dl className="metrics-grid compact-metrics">
+            <div>
+              <dt>Root</dt>
+              <dd>{analysis?.rootName ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt>Elements</dt>
+              <dd>{analysis?.totalElements ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Warnings</dt>
+              <dd>{parseError ? 1 : analysis?.warnings.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Risks</dt>
+              <dd>{analysis?.risks.length ?? 0}</dd>
+            </div>
+          </dl>
+        </section>
+      </>
+    );
+  }
+
+  function renderRepairSection() {
+    return (
+      <>
+        <section className="status-card font-card section-card">
+          <p className="status-label">Font mapping</p>
+          <strong>Upload replacement fonts</strong>
+          <p>Use local TTF, OTF, or WOFF files to convert text that references non-embedded fonts.</p>
+          <div className="font-actions">
+            <button className="ghost-button repair-button" type="button" onClick={() => fontInputRef.current?.click()}>
+              Upload fonts
+            </button>
+          </div>
+          <div className="font-stack">
+            {uploadedFonts.length > 0 ? (
+              <div className="font-section">
+                <p className="font-section-title">Uploaded fonts</p>
+                <ul className="font-list" aria-label="Uploaded fonts">
+                  {uploadedFonts.map((font) => (
+                    <li key={font.id} className="font-list-item">
+                      <div>
+                        <strong>{font.familyName}</strong>
+                        <span>{font.fileName}</span>
+                      </div>
+                      <button className="ghost-button inline-button" type="button" onClick={() => removeUploadedFont(font.id)}>
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="repair-note">No uploaded fonts yet.</p>
+            )}
+
+            {analysis && analysis.opportunities.referencedTextFamilies.length > 0 ? (
+              <div className="font-section">
+                <p className="font-section-title">Referenced text families</p>
+                <ul className="font-list" aria-label="Referenced text families">
+                  {analysis.opportunities.referencedTextFamilies.map((fontReference) => (
+                    <li key={fontReference.key} className="font-mapping-item">
+                      <div className="font-mapping-copy">
+                        <strong>{fontReference.label}</strong>
+                        <span>
+                          {fontReference.usageCount} text node{fontReference.usageCount === 1 ? '' : 's'} • {fontReference.status}
+                          {fontReference.matchedFontFamily ? ` • ${fontReference.matchedFontFamily}` : ''}
+                        </span>
+                      </div>
+                      <label className="font-mapping-control">
+                        <span>Map {fontReference.label}</span>
+                        <select
+                          value={fontMappings[fontReference.key] ?? ''}
+                          onChange={(event) => updateFontMapping(fontReference.key, event.target.value)}
+                          disabled={uploadedFonts.length === 0}
+                          aria-label={`Map ${fontReference.label} font family`}
+                        >
+                          <option value="">Use matching family if available</option>
+                          {uploadedFonts.map((font) => (
+                            <option key={font.id} value={font.id}>
+                              {font.familyName} ({font.fileName})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="repair-note">No named text font families detected in this SVG.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="status-card repair-card section-card">
+          <p className="status-label">Repair actions</p>
+          <strong>Safe normalization</strong>
+          <div className="repair-actions">
+            <button
+              className="primary-button repair-button"
+              type="button"
+              onClick={applySafeRepairPass}
+              disabled={!analysis || safeRepairCount === 0}
+            >
+              Normalize all safe repairs ({safeRepairCount})
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyStyleInlining}
+              disabled={!analysis || analysis.opportunities.inlineableStyleRuleCount === 0}
+            >
+              Inline {analysis?.opportunities.inlineableStyleRuleCount ?? 0} simple style rules
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyShapeNormalization}
+              disabled={!analysis || analysis.opportunities.primitiveShapeCount === 0}
+            >
+              Convert {analysis?.opportunities.primitiveShapeCount ?? 0} shape primitives to paths
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyTextConversion}
+              disabled={!analysis || analysis.opportunities.convertibleTextCount === 0}
+            >
+              Convert {analysis?.opportunities.convertibleTextCount ?? 0} text elements to paths
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyTransformBake}
+              disabled={!analysis || analysis.opportunities.directTransformCount === 0}
+            >
+              Bake {analysis?.opportunities.directTransformCount ?? 0} direct transforms
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyContainerTransformBake}
+              disabled={!analysis || analysis.opportunities.bakeableContainerTransformCount === 0}
+            >
+              Bake {analysis?.opportunities.bakeableContainerTransformCount ?? 0} container transforms
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyUseExpansion}
+              disabled={!analysis || analysis.opportunities.expandableUseCount === 0}
+            >
+              Expand {analysis?.opportunities.expandableUseCount ?? 0} use references
+            </button>
+          </div>
+          <div className="repair-notes-stack">
+            <p className="repair-note">
+              {analysis
+                ? getTextConversionMessage(
+                    analysis.opportunities.convertibleTextCount,
+                    analysis.opportunities.blockedTextCount,
+                  )
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+            <p className="repair-note">
+              {analysis
+                ? getStyleInliningMessage(
+                    analysis.opportunities.inlineableStyleRuleCount,
+                    analysis.opportunities.blockedStyleRuleCount,
+                  )
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+            <p className="repair-note">
+              {analysis
+                ? getUseExpansionMessage(
+                    analysis.opportunities.expandableUseCount,
+                    analysis.opportunities.blockedUseCount,
+                  )
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+            <p className="repair-note">
+              {analysis
+                ? getContainerTransformMessage(
+                    analysis.opportunities.bakeableContainerTransformCount,
+                    analysis.opportunities.blockedContainerTransformCount,
+                  )
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+          </div>
+          {repairMessage ? <p className="repair-feedback">{repairMessage}</p> : null}
+        </section>
+      </>
+    );
+  }
+
+  function renderExportSection() {
+    return (
+      <section className="focus-card export-card section-card">
+        <h3>Export</h3>
+        <p className="export-copy">Choose an export preset and download or copy the resulting SVG directly from the browser.</p>
+        <div className="export-presets" role="tablist" aria-label="Export presets">
+          {exportPresetCards.map((preset) => (
+            <button
+              key={preset.id}
+              className={`export-preset ${selectedExportPreset === preset.id ? 'active' : ''}`}
+              type="button"
+              onClick={() => setSelectedExportPreset(preset.id)}
+            >
+              <strong>{preset.title}</strong>
+              <span>{preset.description}</span>
+            </button>
+          ))}
+        </div>
+        <div className="export-actions two-column-actions">
+          <button className="ghost-button export-button" type="button" onClick={downloadCurrentSvg}>
+            Download current SVG
+          </button>
+          <button className="ghost-button export-button" type="button" onClick={() => void copyCurrentSvg()}>
+            Copy current SVG
+          </button>
+          <button
+            className="primary-button export-button"
+            type="button"
+            onClick={downloadSelectedPreset}
+            disabled={selectedExportPreset !== 'current' && !normalizedExport}
+          >
+            Download {getExportVariantLabel(selectedExportPreset)}
+          </button>
+          <button
+            className="primary-button export-button"
+            type="button"
+            onClick={() => void copySelectedPreset()}
+            disabled={selectedExportPreset !== 'current' && !normalizedExport}
+          >
+            Copy {getExportVariantLabel(selectedExportPreset)}
+          </button>
+        </div>
+        <ul className="tag-list compact export-list">
+          <li>
+            <span>Current file</span>
+            <strong>{buildExportFileName(fileName, 'current')}</strong>
+          </li>
+          <li>
+            <span>Normalized file</span>
+            <strong>{buildExportFileName(fileName, 'safe')}</strong>
+          </li>
+          <li>
+            <span>Blender preset</span>
+            <strong>{buildExportFileName(fileName, 'blender')}</strong>
+          </li>
+        </ul>
+        {exportReport ? (
+          <div className="export-report">
+            <div className="export-report-heading">
+              <span className="status-label">{exportReport.action === 'copy' ? 'Last copy' : 'Last export'}</span>
+              <strong>{getExportVariantLabel(exportReport.variant)}</strong>
+            </div>
+            <p className="export-report-file">{exportReport.fileName}</p>
+            <p className="export-report-label">Applied</p>
+            <ul className="warning-list export-report-list">
+              {exportReport.applied.map((item) => (
+                <li key={`applied-${item}`}>
+                  <span className="risk-badge info">applied</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="export-report-label">Remaining blockers</p>
+            <ul className="warning-list export-report-list">
+              {exportReport.remaining.length > 0 ? (
+                exportReport.remaining.map((item) => (
+                  <li key={`remaining-${item}`}>
+                    <span className="risk-badge warning">remaining</span>
+                    <span>{item}</span>
+                  </li>
+                ))
+              ) : (
+                <li>
+                  <span className="risk-badge info">clear</span>
+                  <span>No tracked blockers remain in this export.</span>
+                </li>
+              )}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  function renderActiveSection() {
+    switch (activeSection) {
+      case 'inspect':
+        return renderInspectSection();
+      case 'repair':
+        return renderRepairSection();
+      case 'export':
+        return renderExportSection();
+      case 'file':
+      default:
+        return renderFileSection();
+    }
+  }
+
+  function renderInspectorContent() {
+    switch (inspectorTab) {
+      case 'selection':
+        return (
+          <section className="focus-card section-card inspector-card-fill">
+            <h3>Selected element</h3>
+            {selectedNode ? (
+              <div className="selection-card">
+                <p className="selection-tag">{selectedNode.name}</p>
+                <p className="selection-copy">{selectedNode.textPreview || 'No direct text content.'}</p>
+                <ul className="attribute-list">
+                  {Object.entries(selectedNode.attributes).length > 0 ? (
+                    Object.entries(selectedNode.attributes).slice(0, 10).map(([name, value]) => (
+                      <li key={name}>
+                        <span>{name}</span>
+                        <strong>{value}</strong>
+                      </li>
+                    ))
+                  ) : (
+                    <li>
+                      <span>No element attributes found.</span>
+                      <strong>0</strong>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            ) : (
+              <p className="selection-copy">Select an element in the preview to inspect it here.</p>
+            )}
+          </section>
+        );
+      case 'readiness':
+        return (
+          <div className="inspector-stack tabbed-stack">
+            <section className="focus-card readiness-card section-card">
+              <div className="readiness-header">
+                <h3>Export readiness</h3>
+                <span className={`readiness-badge ${analysis?.exportReadiness.status ?? 'blocked'}`}>
+                  {analysis ? getReadinessLabel(analysis.exportReadiness.status) : 'Blocked'}
+                </span>
+              </div>
+              <dl className="metrics-grid readiness-metrics compact-metrics">
+                <div>
+                  <dt>Auto-fixable</dt>
+                  <dd>{analysis?.exportReadiness.autoFixCount ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Blocked</dt>
+                  <dd>{analysis?.exportReadiness.blockerCount ?? 0}</dd>
+                </div>
+              </dl>
+              <p className="readiness-copy">
+                {analysis?.exportReadiness.status === 'ready'
+                  ? 'This SVG currently has no tracked blockers for the safe export pipeline.'
+                  : analysis?.exportReadiness.status === 'repairable'
+                    ? 'Run the safe repair pass to clear the remaining auto-fixable items.'
+                    : 'This SVG still has unresolved blockers that need manual editing or future repair support.'}
+              </p>
+              <ul className="warning-list readiness-list">
+                {analysis?.exportReadiness.autoFixes.map((item) => (
+                  <li key={`fix-${item}`}>
+                    <span className="risk-badge info">auto-fix</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+                {analysis?.exportReadiness.blockers.map((item) => (
+                  <li key={`block-${item}`}>
+                    <span className="risk-badge warning">blocked</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+                {analysis && analysis.exportReadiness.autoFixes.length === 0 && analysis.exportReadiness.blockers.length === 0 ? (
+                  <li>
+                    <span className="risk-badge info">clear</span>
+                    <span>No tracked export blockers remain.</span>
+                  </li>
+                ) : null}
+              </ul>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Normalization opportunities</h3>
+              <ul className="tag-list compact">
+                <li>
+                  <span>Shape primitives</span>
+                  <strong>{analysis?.opportunities.primitiveShapeCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Text elements</span>
+                  <strong>{analysis?.opportunities.convertibleTextCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Blocked text</span>
+                  <strong>{analysis?.opportunities.blockedTextCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Direct transforms</span>
+                  <strong>{analysis?.opportunities.directTransformCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Container transforms</span>
+                  <strong>{analysis?.opportunities.containerTransformCount ?? 0}</strong>
+                </li>
+              </ul>
+            </section>
+          </div>
+        );
+      case 'warnings':
+        return (
+          <div className="inspector-stack tabbed-stack">
+            <section className="focus-card section-card">
+              <h3>Risk scan</h3>
+              <ul className="warning-list risk-list">
+                {analysis && analysis.risks.length > 0 ? (
+                  analysis.risks.map((risk) => (
+                    <li key={risk.message}>
+                      <span className={`risk-badge ${risk.severity}`}>{risk.severity}</span>
+                      <span>{risk.message}</span>
+                    </li>
+                  ))
+                ) : (
+                  <li>
+                    <span className="risk-badge info">clear</span>
+                    <span>No structural risks detected yet.</span>
+                  </li>
+                )}
+              </ul>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Preview warnings</h3>
+              <ul className="warning-list">
+                {parseError ? (
+                  <li>
+                    <span className="risk-badge warning">error</span>
+                    <span>{parseError}</span>
+                  </li>
+                ) : analysis && analysis.warnings.length > 0 ? (
+                  analysis.warnings.map((warning) => (
+                    <li key={warning}>
+                      <span className="risk-badge info">preview</span>
+                      <span>{warning}</span>
+                    </li>
+                  ))
+                ) : (
+                  <li>
+                    <span className="risk-badge info">clear</span>
+                    <span>No preview sanitization warnings for this file.</span>
+                  </li>
+                )}
+              </ul>
+            </section>
+          </div>
+        );
+      case 'overview':
+      default:
+        return (
+          <div className="inspector-stack tabbed-stack">
+            <section className="focus-card metrics-card section-card">
+              <h3>Document stats</h3>
+              <dl className="metrics-grid compact-metrics">
+                <div>
+                  <dt>Root</dt>
+                  <dd>{analysis?.rootName ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt>Elements</dt>
+                  <dd>{analysis?.totalElements ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>ViewBox</dt>
+                  <dd>{analysis?.viewBox ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt>Size</dt>
+                  <dd>{analysis ? `${analysis.width} × ${analysis.height}` : 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt>Chars</dt>
+                  <dd>{analysis?.sourceLength ?? source.length}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{parseError ? 'Needs repair' : 'Parsed'}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Top elements</h3>
+              <ul className="tag-list compact">
+                {topTags.length > 0 ? topTags.map(([tag, count]) => (
+                  <li key={tag}>
+                    <span>{tag}</span>
+                    <strong>{count}</strong>
+                  </li>
+                )) : (
+                  <li>
+                    <span>No parsed elements yet</span>
+                    <strong>0</strong>
+                  </li>
+                )}
+              </ul>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Featured tags</h3>
+              <ul className="tag-list compact">
+                {featuredTags.map((tag) => (
+                  <li key={tag}>
+                    <span>{tag}</span>
+                    <strong>{analysis?.tagCounts[tag] ?? 0}</strong>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        );
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -560,207 +1201,52 @@ function App() {
         </div>
       </header>
 
-      <main className="workspace-grid">
-        <aside className="panel tool-panel">
-          <div className="panel-heading">
-            <p className="eyebrow">File intake</p>
-            <h2>Input</h2>
+      <main className={`workspace-grid${isLeftCollapsed ? ' left-collapsed' : ''}${isRightCollapsed ? ' right-collapsed' : ''}`}>
+        <aside className={`panel tool-panel side-panel${isLeftCollapsed ? ' collapsed' : ''}`}>
+          <div className="side-panel-header">
+            {!isLeftCollapsed ? (
+              <div>
+                <p className="eyebrow">Workspace</p>
+                <h2>{primaryNavItems.find((item) => item.id === activeSection)?.label}</h2>
+              </div>
+            ) : null}
+            <button
+              className="collapse-button"
+              type="button"
+              onClick={() => setIsLeftCollapsed((current) => !current)}
+              aria-label={isLeftCollapsed ? 'Expand main navigation' : 'Collapse main navigation'}
+            >
+              {isLeftCollapsed ? '>' : '<'}
+            </button>
           </div>
 
           <nav className="tool-list" aria-label="Primary tool groups">
-            <button className="tool-item active" type="button">File</button>
-            <button className="tool-item" type="button">Inspect</button>
-            <button className="tool-item" type="button">Repair</button>
-            <button className="tool-item" type="button">Style</button>
-            <button className="tool-item" type="button">Animate</button>
-            <button className="tool-item" type="button">Interact</button>
-            <button className="tool-item" type="button">Export</button>
+            {primaryNavItems.map((item) => {
+              const isActive = item.id === activeSection;
+              return (
+                <button
+                  key={item.id}
+                  className={`tool-item${isActive ? ' active' : ''}${!item.enabled ? ' disabled' : ''}${isLeftCollapsed ? ' compact' : ''}`}
+                  type="button"
+                  onClick={() => {
+                    if (item.enabled) {
+                      selectSection(item.id as WorkspaceSection);
+                    }
+                  }}
+                  disabled={!item.enabled}
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-label={item.enabled ? item.label : `${item.label} not available yet`}
+                  title={!item.enabled ? 'Not connected yet' : item.label}
+                >
+                  <span className="tool-item-short">{item.shortLabel}</span>
+                  {!isLeftCollapsed ? <span className="tool-item-label">{item.label}</span> : null}
+                  {!isLeftCollapsed && !item.enabled ? <span className="tool-item-state">Soon</span> : null}
+                </button>
+              );
+            })}
           </nav>
 
-          <section className="status-card">
-            <p className="status-label">Current file</p>
-            <strong>{fileName}</strong>
-            <p>
-              Parsing runs entirely in the browser with DOMParser for preview prep and svgson for structural inspection.
-            </p>
-          </section>
-
-          <section className="status-card font-card">
-            <p className="status-label">Font mapping</p>
-            <strong>Upload replacement fonts</strong>
-            <p>Use local TTF, OTF, or WOFF files to convert text that references non-embedded fonts.</p>
-            <div className="font-actions">
-              <button className="ghost-button repair-button" type="button" onClick={() => fontInputRef.current?.click()}>
-                Upload fonts
-              </button>
-            </div>
-            <div className="font-stack">
-              {uploadedFonts.length > 0 ? (
-                <div className="font-section">
-                  <p className="font-section-title">Uploaded fonts</p>
-                  <ul className="font-list" aria-label="Uploaded fonts">
-                    {uploadedFonts.map((font) => (
-                      <li key={font.id} className="font-list-item">
-                        <div>
-                          <strong>{font.familyName}</strong>
-                          <span>{font.fileName}</span>
-                        </div>
-                        <button className="ghost-button inline-button" type="button" onClick={() => removeUploadedFont(font.id)}>
-                          Remove
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="repair-note">No uploaded fonts yet.</p>
-              )}
-
-              {analysis && analysis.opportunities.referencedTextFamilies.length > 0 ? (
-                <div className="font-section">
-                  <p className="font-section-title">Referenced text families</p>
-                  <ul className="font-list" aria-label="Referenced text families">
-                    {analysis.opportunities.referencedTextFamilies.map((fontReference) => (
-                      <li key={fontReference.key} className="font-mapping-item">
-                        <div className="font-mapping-copy">
-                          <strong>{fontReference.label}</strong>
-                          <span>
-                            {fontReference.usageCount} text node{fontReference.usageCount === 1 ? '' : 's'} • {fontReference.status}
-                            {fontReference.matchedFontFamily ? ` • ${fontReference.matchedFontFamily}` : ''}
-                          </span>
-                        </div>
-                        <label className="font-mapping-control">
-                          <span>Map {fontReference.label}</span>
-                          <select
-                            value={fontMappings[fontReference.key] ?? ''}
-                            onChange={(event) => updateFontMapping(fontReference.key, event.target.value)}
-                            disabled={uploadedFonts.length === 0}
-                            aria-label={`Map ${fontReference.label} font family`}
-                          >
-                            <option value="">Use matching family if available</option>
-                            {uploadedFonts.map((font) => (
-                              <option key={font.id} value={font.id}>
-                                {font.familyName} ({font.fileName})
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="repair-note">No named text font families detected in this SVG.</p>
-              )}
-            </div>
-          </section>
-
-          <section className="status-card repair-card">
-            <p className="status-label">Repair actions</p>
-            <strong>Initial normalization</strong>
-            <div className="repair-actions">
-              <button
-                className="primary-button repair-button"
-                type="button"
-                onClick={applySafeRepairPass}
-                disabled={!analysis || safeRepairCount === 0}
-              >
-                Normalize all safe repairs ({safeRepairCount})
-              </button>
-              <button
-                className="ghost-button repair-button"
-                type="button"
-                onClick={applyStyleInlining}
-                disabled={!analysis || analysis.opportunities.inlineableStyleRuleCount === 0}
-              >
-                Inline {analysis?.opportunities.inlineableStyleRuleCount ?? 0} simple style rules
-              </button>
-              <button
-                className="ghost-button repair-button"
-                type="button"
-                onClick={applyShapeNormalization}
-                disabled={!analysis || analysis.opportunities.primitiveShapeCount === 0}
-              >
-                Convert {analysis?.opportunities.primitiveShapeCount ?? 0} shape primitives to paths
-              </button>
-              <button
-                className="ghost-button repair-button"
-                type="button"
-                onClick={applyTextConversion}
-                disabled={!analysis || analysis.opportunities.convertibleTextCount === 0}
-              >
-                Convert {analysis?.opportunities.convertibleTextCount ?? 0} text elements to paths
-              </button>
-              <button
-                className="ghost-button repair-button"
-                type="button"
-                onClick={applyTransformBake}
-                disabled={!analysis || analysis.opportunities.directTransformCount === 0}
-              >
-                Bake {analysis?.opportunities.directTransformCount ?? 0} direct transforms
-              </button>
-              <button
-                className="ghost-button repair-button"
-                type="button"
-                onClick={applyContainerTransformBake}
-                disabled={!analysis || analysis.opportunities.bakeableContainerTransformCount === 0}
-              >
-                Bake {analysis?.opportunities.bakeableContainerTransformCount ?? 0} container transforms
-              </button>
-              <button
-                className="ghost-button repair-button"
-                type="button"
-                onClick={applyUseExpansion}
-                disabled={!analysis || analysis.opportunities.expandableUseCount === 0}
-              >
-                Expand {analysis?.opportunities.expandableUseCount ?? 0} use references
-              </button>
-            </div>
-            <p className="repair-note">
-              {analysis
-                ? getTextConversionMessage(
-                    analysis.opportunities.convertibleTextCount,
-                    analysis.opportunities.blockedTextCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getStyleInliningMessage(
-                    analysis.opportunities.inlineableStyleRuleCount,
-                    analysis.opportunities.blockedStyleRuleCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getUseExpansionMessage(
-                    analysis.opportunities.expandableUseCount,
-                    analysis.opportunities.blockedUseCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getContainerTransformMessage(
-                    analysis.opportunities.bakeableContainerTransformCount,
-                    analysis.opportunities.blockedContainerTransformCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            {repairMessage ? <p className="repair-feedback">{repairMessage}</p> : null}
-          </section>
-
-          <section className="editor-card">
-            <label className="editor-label" htmlFor={sourceId}>SVG source</label>
-            <textarea
-              id={sourceId}
-              className="source-editor"
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              spellCheck={false}
-            />
-          </section>
+          {!isLeftCollapsed ? <div className="side-panel-body">{renderActiveSection()}</div> : null}
         </aside>
 
         <section className="panel preview-panel">
@@ -828,301 +1314,65 @@ function App() {
                 <pre className="markup-preview">{deferredSource}</pre>
               )}
             </div>
-
-            <div className="preview-overlay">
-              <div>
-                <span className="preview-kicker">Pipeline</span>
-                <strong>File input → DOMParser sanitize → inline preview → svgson analysis</strong>
-              </div>
-              <p>
-                Drag and drop an SVG here, open a file, or edit the markup directly. Preview rendering strips executable nodes and inline event handlers before insertion.
-              </p>
-            </div>
           </div>
 
-          <section className="mode-grid" aria-label="Product modes">
-            {modeCards.map((mode) => (
-              <article className="mode-card" key={mode.title}>
-                <span className="mode-badge">{mode.status}</span>
-                <h3>{mode.title}</h3>
-                <p>{mode.description}</p>
-              </article>
-            ))}
-          </section>
+          <div className="preview-overlay compact-overlay">
+            <div>
+              <span className="preview-kicker">{primaryNavItems.find((item) => item.id === activeSection)?.label}</span>
+              <strong>{statusSummary}</strong>
+            </div>
+            <p>
+              {activeSection === 'file'
+                ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
+                : activeSection === 'inspect'
+                  ? 'Select elements in the preview to drive the inspection tabs and reveal node-level details.'
+                  : activeSection === 'repair'
+                    ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right.'
+                    : 'Choose an export preset on the left and verify the remaining blockers in the readiness tab.'}
+            </p>
+          </div>
         </section>
 
-        <aside className="panel inspector-panel">
-          <div className="panel-heading">
-            <p className="eyebrow">Inspection</p>
-            <h2>Structure analysis</h2>
+        <aside className={`panel inspector-panel side-panel${isRightCollapsed ? ' collapsed' : ''}`}>
+          <div className="side-panel-header">
+            {!isRightCollapsed ? (
+              <div>
+                <p className="eyebrow">Inspection</p>
+                <h2>{inspectorTabLabels[inspectorTab]}</h2>
+              </div>
+            ) : null}
+            <button
+              className="collapse-button"
+              type="button"
+              onClick={() => setIsRightCollapsed((current) => !current)}
+              aria-label={isRightCollapsed ? 'Expand inspection panel' : 'Collapse inspection panel'}
+            >
+              {isRightCollapsed ? '<' : '>'}
+            </button>
           </div>
 
-          <div className="inspector-stack">
-            <section className="focus-card metrics-card">
-              <h3>Document stats</h3>
-              <dl className="metrics-grid">
-                <div>
-                  <dt>Root</dt>
-                  <dd>{analysis?.rootName ?? 'n/a'}</dd>
-                </div>
-                <div>
-                  <dt>Elements</dt>
-                  <dd>{analysis?.totalElements ?? 0}</dd>
-                </div>
-                <div>
-                  <dt>ViewBox</dt>
-                  <dd>{analysis?.viewBox ?? 'n/a'}</dd>
-                </div>
-                <div>
-                  <dt>Size</dt>
-                  <dd>{analysis ? `${analysis.width} × ${analysis.height}` : 'n/a'}</dd>
-                </div>
-                <div>
-                  <dt>Chars</dt>
-                  <dd>{analysis?.sourceLength ?? source.length}</dd>
-                </div>
-                <div>
-                  <dt>Status</dt>
-                  <dd>{parseError ? 'Needs repair' : 'Parsed'}</dd>
-                </div>
-              </dl>
-            </section>
-
-            <section className="focus-card readiness-card">
-              <div className="readiness-header">
-                <h3>Export readiness</h3>
-                <span className={`readiness-badge ${analysis?.exportReadiness.status ?? 'blocked'}`}>
-                  {analysis ? getReadinessLabel(analysis.exportReadiness.status) : 'Blocked'}
-                </span>
-              </div>
-              <dl className="metrics-grid readiness-metrics">
-                <div>
-                  <dt>Auto-fixable</dt>
-                  <dd>{analysis?.exportReadiness.autoFixCount ?? 0}</dd>
-                </div>
-                <div>
-                  <dt>Blocked</dt>
-                  <dd>{analysis?.exportReadiness.blockerCount ?? 0}</dd>
-                </div>
-              </dl>
-              <p className="readiness-copy">
-                {analysis?.exportReadiness.status === 'ready'
-                  ? 'This SVG currently has no tracked blockers for the safe export pipeline.'
-                  : analysis?.exportReadiness.status === 'repairable'
-                    ? 'Run the safe repair pass to clear the remaining auto-fixable items.'
-                    : 'This SVG still has unresolved blockers that need additional repair support or manual editing.'}
-              </p>
-              <ul className="warning-list readiness-list">
-                {analysis?.exportReadiness.autoFixes.map((item) => (
-                  <li key={`fix-${item}`}>
-                    <span className="risk-badge info">auto-fix</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-                {analysis?.exportReadiness.blockers.map((item) => (
-                  <li key={`block-${item}`}>
-                    <span className="risk-badge warning">blocked</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-                {analysis && analysis.exportReadiness.autoFixes.length === 0 && analysis.exportReadiness.blockers.length === 0 ? (
-                  <li>
-                    <span className="risk-badge info">clear</span>
-                    <span>No tracked export blockers remain.</span>
-                  </li>
-                ) : null}
-              </ul>
-            </section>
-
-            <section className="focus-card export-card">
-              <h3>Export</h3>
-              <p className="export-copy">Choose an export preset and download the resulting SVG directly from the browser.</p>
-              <div className="export-presets" role="tablist" aria-label="Export presets">
-                {exportPresetCards.map((preset) => (
+          {!isRightCollapsed ? (
+            <>
+              <div className="inspector-tabs" role="tablist" aria-label="Inspection sections">
+                {availableInspectorTabs.map((tab) => (
                   <button
-                    key={preset.id}
-                    className={`export-preset ${selectedExportPreset === preset.id ? 'active' : ''}`}
+                    key={tab}
+                    className={`preview-tab inspector-tab${inspectorTab === tab ? ' active' : ''}`}
                     type="button"
-                    onClick={() => setSelectedExportPreset(preset.id)}
+                    role="tab"
+                    aria-selected={inspectorTab === tab}
+                    onClick={() => setInspectorTab(tab)}
                   >
-                    <strong>{preset.title}</strong>
-                    <span>{preset.description}</span>
+                    {inspectorTabLabels[tab]}
                   </button>
                 ))}
               </div>
-              <div className="export-actions">
-                <button className="ghost-button export-button" type="button" onClick={downloadCurrentSvg}>
-                  Download current SVG
-                </button>
-                <button className="ghost-button export-button" type="button" onClick={() => void copyCurrentSvg()}>
-                  Copy current SVG
-                </button>
-                <button
-                  className="primary-button export-button"
-                  type="button"
-                  onClick={downloadSelectedPreset}
-                  disabled={selectedExportPreset !== 'current' && !normalizedExport}
-                >
-                  Download {getExportVariantLabel(selectedExportPreset)}
-                </button>
-                <button
-                  className="primary-button export-button"
-                  type="button"
-                  onClick={() => void copySelectedPreset()}
-                  disabled={selectedExportPreset !== 'current' && !normalizedExport}
-                >
-                  Copy {getExportVariantLabel(selectedExportPreset)}
-                </button>
-              </div>
-              <ul className="tag-list compact export-list">
-                <li>
-                  <span>Current file</span>
-                  <strong>{buildExportFileName(fileName, 'current')}</strong>
-                </li>
-                <li>
-                  <span>Normalized file</span>
-                  <strong>{buildExportFileName(fileName, 'safe')}</strong>
-                </li>
-                <li>
-                  <span>Blender preset</span>
-                  <strong>{buildExportFileName(fileName, 'blender')}</strong>
-                </li>
-              </ul>
-              {exportReport ? (
-                <div className="export-report">
-                  <div className="export-report-heading">
-                    <span className="status-label">{exportReport.action === 'copy' ? 'Last copy' : 'Last export'}</span>
-                    <strong>{getExportVariantLabel(exportReport.variant)}</strong>
-                  </div>
-                  <p className="export-report-file">{exportReport.fileName}</p>
-                  <p className="export-report-label">Applied</p>
-                  <ul className="warning-list export-report-list">
-                    {exportReport.applied.map((item) => (
-                      <li key={`applied-${item}`}>
-                        <span className="risk-badge info">applied</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="export-report-label">Remaining blockers</p>
-                  <ul className="warning-list export-report-list">
-                    {exportReport.remaining.length > 0 ? (
-                      exportReport.remaining.map((item) => (
-                        <li key={`remaining-${item}`}>
-                          <span className="risk-badge warning">remaining</span>
-                          <span>{item}</span>
-                        </li>
-                      ))
-                    ) : (
-                      <li>
-                        <span className="risk-badge info">clear</span>
-                        <span>No tracked blockers remain in this export.</span>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              ) : null}
-            </section>
 
-            <section className="focus-card">
-              <h3>Normalization opportunities</h3>
-              <ul className="tag-list compact">
-                <li>
-                  <span>Shape primitives</span>
-                  <strong>{analysis?.opportunities.primitiveShapeCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Text elements</span>
-                  <strong>{analysis?.opportunities.convertibleTextCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Blocked text</span>
-                  <strong>{analysis?.opportunities.blockedTextCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Direct transforms</span>
-                  <strong>{analysis?.opportunities.directTransformCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Container transforms</span>
-                  <strong>{analysis?.opportunities.containerTransformCount ?? 0}</strong>
-                </li>
-              </ul>
-            </section>
-
-            <section className="focus-card">
-              <h3>Selected element</h3>
-              {selectedNode ? (
-                <div className="selection-card">
-                  <p className="selection-tag">{selectedNode.name}</p>
-                  <p className="selection-copy">{selectedNode.textPreview || 'No direct text content.'}</p>
-                  <ul className="attribute-list">
-                    {Object.entries(selectedNode.attributes).slice(0, 8).map(([name, value]) => (
-                      <li key={name}>
-                        <span>{name}</span>
-                        <strong>{value}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="selection-copy">No element selected.</p>
-              )}
-            </section>
-
-            <section className="focus-card">
-              <h3>Featured tags</h3>
-              <ul className="tag-list">
-                {featuredTags.map((tag) => (
-                  <li key={tag}>
-                    <span>{tag}</span>
-                    <strong>{analysis?.tagCounts[tag] ?? 0}</strong>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="focus-card">
-              <h3>Top elements</h3>
-              <ul className="tag-list compact">
-                {topTags.length > 0 ? topTags.map(([tag, count]) => (
-                  <li key={tag}>
-                    <span>{tag}</span>
-                    <strong>{count}</strong>
-                  </li>
-                )) : <li><span>No parsed elements yet</span><strong>0</strong></li>}
-              </ul>
-            </section>
-
-            <section className="focus-card">
-              <h3>Risk scan</h3>
-              <ul className="warning-list risk-list">
-                {analysis && analysis.risks.length > 0 ? (
-                  analysis.risks.map((risk) => (
-                    <li key={risk.message}>
-                      <span className={`risk-badge ${risk.severity}`}>{risk.severity}</span>
-                      <span>{risk.message}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li>No structural risks detected yet.</li>
-                )}
-              </ul>
-            </section>
-
-            <section className="focus-card">
-              <h3>Preview warnings</h3>
-              <ul className="warning-list">
-                {parseError ? (
-                  <li>{parseError}</li>
-                ) : analysis && analysis.warnings.length > 0 ? (
-                  analysis.warnings.map((warning) => <li key={warning}>{warning}</li>)
-                ) : (
-                  <li>No preview sanitization warnings for this file.</li>
-                )}
-              </ul>
-            </section>
-          </div>
+              <div className="side-panel-body inspector-panel-body">{renderInspectorContent()}</div>
+            </>
+          ) : (
+            <div className="collapsed-panel-label">Inspect</div>
+          )}
         </aside>
       </main>
     </div>
