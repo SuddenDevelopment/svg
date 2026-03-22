@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useId, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent, PointerEvent, WheelEvent } from 'react';
+import type { ChangeEvent, DragEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { sampleSvg } from './lib/sample-svg';
 import { buildAnalysis, getChangedPreviewNodePaths } from './lib/svg-analysis';
 import type { Analysis } from './lib/svg-analysis';
@@ -210,6 +210,24 @@ function getPngSnapshotLabel(variant: ExportVariant) {
   }
 }
 
+function hasInlineOverflow(element: HTMLElement) {
+  return element.scrollWidth > element.clientWidth + 1;
+}
+
+function syncFitContainers(root: ParentNode | null) {
+  if (!root) {
+    return;
+  }
+
+  root.querySelectorAll<HTMLElement>('[data-fit-container]').forEach((element) => {
+    const shouldWrap = element.dataset.fitMode === 'children'
+      ? Array.from(element.children).some((child) => child instanceof HTMLElement && hasInlineOverflow(child))
+      : hasInlineOverflow(element);
+
+    element.dataset.fitState = shouldWrap ? 'wrap' : 'fit';
+  });
+}
+
 function App() {
   const inputId = useId();
   const fontInputId = useId();
@@ -217,6 +235,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fontInputRef = useRef<HTMLInputElement | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
+  const inspectorPanelRef = useRef<HTMLElement | null>(null);
   const previewPointerRef = useRef<{
     pointerId: number;
     lastX: number;
@@ -283,6 +302,21 @@ function App() {
       return analysis.rootNodeId;
     });
   }, [analysis]);
+
+  useEffect(() => {
+    if (isRightCollapsed) {
+      return;
+    }
+
+    const sync = () => syncFitContainers(inspectorPanelRef.current);
+
+    sync();
+    window.addEventListener('resize', sync);
+
+    return () => {
+      window.removeEventListener('resize', sync);
+    };
+  }, [activeSection, analysis, inspectorTab, isRightCollapsed, parseError, selectedNodeId]);
 
   useEffect(() => {
     const container = previewFrameRef.current;
@@ -1007,6 +1041,18 @@ function App() {
     await copyExportVariant(selectedExportPreset);
   }
 
+  function closePreviewWorkflowMenu(target: EventTarget | null) {
+    const menu = target instanceof HTMLElement ? target.closest('details') : null;
+    if (menu instanceof HTMLDetailsElement) {
+      menu.open = false;
+    }
+  }
+
+  function handlePreviewWorkflowAction(event: MouseEvent<HTMLButtonElement>, action: () => void | Promise<void>) {
+    void action();
+    closePreviewWorkflowMenu(event.currentTarget);
+  }
+
   function selectSection(section: WorkspaceSection) {
     setActiveSection(section);
     setInspectorTab(defaultInspectorTabBySection[section]);
@@ -1016,6 +1062,18 @@ function App() {
     setSelectedNodeId(nodeId);
     setActiveSection('inspect');
     setInspectorTab('selection');
+  }
+
+  function resolvePreviewNodeId(target: EventTarget | null, clientX: number, clientY: number) {
+    const targetElement = target instanceof Element ? target : null;
+    const directNodeId = targetElement?.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id');
+    if (directNodeId) {
+      return directNodeId;
+    }
+
+    const previewDocument = previewFrameRef.current?.ownerDocument;
+    const fallbackTarget = previewDocument?.elementFromPoint(clientX, clientY);
+    return fallbackTarget?.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id') ?? null;
   }
 
   function handlePreviewPointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -1031,7 +1089,9 @@ function App() {
     };
     suppressPreviewClickRef.current = false;
     setIsPanningPreview(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (typeof event.currentTarget.setPointerCapture === 'function') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
   }
 
   function handlePreviewPointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -1067,9 +1127,20 @@ function App() {
       return;
     }
 
+    const shouldSuppressClick = suppressPreviewClickRef.current;
     stopPreviewPan();
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    if (typeof event.currentTarget.hasPointerCapture === 'function' && event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (shouldSuppressClick) {
+      suppressPreviewClickRef.current = false;
+      return;
+    }
+
+    const nodeId = resolvePreviewNodeId(event.target, event.clientX, event.clientY);
+    if (nodeId) {
+      inspectSelectedNode(nodeId);
     }
   }
 
@@ -1568,13 +1639,13 @@ function App() {
                 <ul className="attribute-list">
                   {Object.entries(selectedNode.attributes).length > 0 ? (
                     Object.entries(selectedNode.attributes).slice(0, 10).map(([name, value]) => (
-                      <li key={name}>
+                      <li key={name} data-fit-container>
                         <span>{name}</span>
                         <strong>{value}</strong>
                       </li>
                     ))
                   ) : (
-                    <li>
+                    <li data-fit-container>
                       <span>No element attributes found.</span>
                       <strong>0</strong>
                     </li>
@@ -1590,13 +1661,13 @@ function App() {
         return (
           <div className="inspector-stack tabbed-stack">
             <section className="focus-card section-card">
-              <div className="readiness-header">
+              <div className="readiness-header" data-fit-container>
                 <h3>Workflow scorecards</h3>
                 <span className="status-label">Profiles</span>
               </div>
-              <div className="readiness-scorecards">
+              <div className="readiness-scorecards" data-fit-container data-fit-mode="children">
                 <article className="readiness-scorecard">
-                  <div className="readiness-header">
+                  <div className="readiness-header" data-fit-container>
                     <div>
                       <p className="scorecard-kicker">Geometry-safe</p>
                       <strong>Geometry-safe export</strong>
@@ -1609,13 +1680,13 @@ function App() {
                   <p className="readiness-copy">{analysis?.workflowReadiness.geometrySafe.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
                   <ul className="warning-list compact-readiness-list">
                     {(analysis?.workflowReadiness.geometrySafe.strengths ?? []).map((item) => (
-                      <li key={`geometry-strength-${item}`}>
+                      <li key={`geometry-strength-${item}`} data-fit-container>
                         <span className="risk-badge info">signal</span>
                         <span>{item}</span>
                       </li>
                     ))}
                     {(analysis?.workflowReadiness.geometrySafe.blockers ?? []).slice(0, 2).map((item) => (
-                      <li key={`geometry-blocker-${item}`}>
+                      <li key={`geometry-blocker-${item}`} data-fit-container>
                         <span className="risk-badge warning">blocked</span>
                         <span>{item}</span>
                       </li>
@@ -1624,7 +1695,7 @@ function App() {
                 </article>
 
                 <article className="readiness-scorecard">
-                  <div className="readiness-header">
+                  <div className="readiness-header" data-fit-container>
                     <div>
                       <p className="scorecard-kicker">Runtime-preserving</p>
                       <strong>Browser/runtime SVG</strong>
@@ -1637,19 +1708,19 @@ function App() {
                   <p className="readiness-copy">{analysis?.workflowReadiness.runtimeSvg.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
                   <ul className="warning-list compact-readiness-list">
                     {(analysis?.workflowReadiness.runtimeSvg.strengths ?? []).map((item) => (
-                      <li key={`runtime-strength-${item}`}>
+                      <li key={`runtime-strength-${item}`} data-fit-container>
                         <span className="risk-badge info">signal</span>
                         <span>{item}</span>
                       </li>
                     ))}
                     {(analysis?.workflowReadiness.runtimeSvg.autoFixes ?? []).slice(0, 2).map((item) => (
-                      <li key={`runtime-fix-${item}`}>
+                      <li key={`runtime-fix-${item}`} data-fit-container>
                         <span className="risk-badge info">auto-fix</span>
                         <span>{item}</span>
                       </li>
                     ))}
                     {(analysis?.workflowReadiness.runtimeSvg.blockers ?? []).slice(0, 2).map((item) => (
-                      <li key={`runtime-blocker-${item}`}>
+                      <li key={`runtime-blocker-${item}`} data-fit-container>
                         <span className="risk-badge warning">blocked</span>
                         <span>{item}</span>
                       </li>
@@ -1660,13 +1731,13 @@ function App() {
             </section>
 
             <section className="focus-card readiness-card section-card">
-              <div className="readiness-header">
+              <div className="readiness-header" data-fit-container>
                 <h3>Export readiness</h3>
                 <span className={`readiness-badge ${analysis?.exportReadiness.status ?? 'blocked'}`}>
                   {analysis ? getReadinessLabel(analysis.exportReadiness.status) : 'Blocked'}
                 </span>
               </div>
-              <dl className="metrics-grid readiness-metrics compact-metrics">
+              <dl className="metrics-grid readiness-metrics compact-metrics" data-fit-container data-fit-mode="children">
                 <div>
                   <dt>Auto-fixable</dt>
                   <dd>{analysis?.exportReadiness.autoFixCount ?? 0}</dd>
@@ -1687,19 +1758,19 @@ function App() {
               </p>
               <ul className="warning-list readiness-list">
                 {analysis?.exportReadiness.autoFixes.map((item) => (
-                  <li key={`fix-${item}`}>
+                  <li key={`fix-${item}`} data-fit-container>
                     <span className="risk-badge info">auto-fix</span>
                     <span>{item}</span>
                   </li>
                 ))}
                 {analysis?.exportReadiness.blockers.map((item) => (
-                  <li key={`block-${item}`}>
+                  <li key={`block-${item}`} data-fit-container>
                     <span className="risk-badge warning">blocked</span>
                     <span>{item}</span>
                   </li>
                 ))}
                 {analysis && analysis.exportReadiness.autoFixes.length === 0 && analysis.exportReadiness.blockers.length === 0 ? (
-                  <li>
+                  <li data-fit-container>
                     <span className="risk-badge info">clear</span>
                     <span>No tracked export blockers remain.</span>
                   </li>
@@ -1821,7 +1892,7 @@ function App() {
           <div className="inspector-stack tabbed-stack">
             <section className="focus-card metrics-card section-card">
               <h3>Document stats</h3>
-              <dl className="metrics-grid compact-metrics">
+              <dl className="metrics-grid compact-metrics" data-fit-container data-fit-mode="children">
                 <div>
                   <dt>Root</dt>
                   <dd>{analysis?.rootName ?? 'n/a'}</dd>
@@ -2084,33 +2155,48 @@ function App() {
           </div>
 
           <div className="preview-workflow-bar" role="toolbar" aria-label="Preview workspace actions">
-            <div className="preview-workflow-group">
-              <span className="preview-workflow-label">Intake</span>
-              <button className="ghost-button preview-workflow-button" type="button" onClick={() => fileInputRef.current?.click()}>
-                Open SVG
-              </button>
-              <button className="primary-button preview-workflow-button" type="button" onClick={() => loadSvgSource(sampleSvg, 'sample.svg')}>
-                Load sample
-              </button>
-            </div>
-            <div className="preview-workflow-group">
-              <span className="preview-workflow-label">Download</span>
-              <button className="ghost-button preview-workflow-button" type="button" onClick={() => downloadExportVariant('current')}>
-                Download current
-              </button>
-              <button className="ghost-button preview-workflow-button" type="button" onClick={() => downloadExportVariant('safe')} disabled={!normalizedExport}>
-                Download geometry-safe
-              </button>
-            </div>
-            <div className="preview-workflow-group">
-              <span className="preview-workflow-label">Share</span>
-              <button className="ghost-button preview-workflow-button" type="button" onClick={() => void copyExportVariant('current')}>
-                Copy current
-              </button>
-              <button className="ghost-button preview-workflow-button" type="button" onClick={() => void copyExportVariant('safe')} disabled={!normalizedExport}>
-                Copy geometry-safe
-              </button>
-            </div>
+            <details className="preview-workflow-menu">
+              <summary className="preview-workflow-trigger">
+                <span className="preview-workflow-label">Intake</span>
+                <span className="preview-workflow-caret" aria-hidden="true">+</span>
+              </summary>
+              <div className="preview-workflow-menu-list" role="group" aria-label="Intake actions">
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => fileInputRef.current?.click())}>
+                  Open SVG
+                </button>
+                <button className="primary-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => loadSvgSource(sampleSvg, 'sample.svg'))}>
+                  Load sample
+                </button>
+              </div>
+            </details>
+            <details className="preview-workflow-menu">
+              <summary className="preview-workflow-trigger">
+                <span className="preview-workflow-label">Download</span>
+                <span className="preview-workflow-caret" aria-hidden="true">+</span>
+              </summary>
+              <div className="preview-workflow-menu-list" role="group" aria-label="Download actions">
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('current'))}>
+                  Download current
+                </button>
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('safe'))} disabled={!normalizedExport}>
+                  Download geometry-safe
+                </button>
+              </div>
+            </details>
+            <details className="preview-workflow-menu">
+              <summary className="preview-workflow-trigger">
+                <span className="preview-workflow-label">Share</span>
+                <span className="preview-workflow-caret" aria-hidden="true">+</span>
+              </summary>
+              <div className="preview-workflow-menu-list" role="group" aria-label="Share actions">
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('current'))}>
+                  Copy current
+                </button>
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('safe'))} disabled={!normalizedExport}>
+                  Copy geometry-safe
+                </button>
+              </div>
+            </details>
           </div>
 
           <div className="preview-toolbar" role="toolbar" aria-label="Preview navigation controls">
@@ -2179,19 +2265,6 @@ function App() {
                     <div
                       ref={previewFrameRef}
                       className="svg-preview-frame"
-                      onClick={(event) => {
-                        if (suppressPreviewClickRef.current) {
-                          suppressPreviewClickRef.current = false;
-                          return;
-                        }
-
-                        const target = event.target as Element | null;
-                        const node = target?.closest('[data-svg-node-id]');
-                        const nodeId = node?.getAttribute('data-svg-node-id');
-                        if (nodeId) {
-                          inspectSelectedNode(nodeId);
-                        }
-                      }}
                       dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
                     />
                   </div>
@@ -2219,7 +2292,7 @@ function App() {
           </div>
         </section>
 
-        <aside className={`panel inspector-panel side-panel${isRightCollapsed ? ' collapsed' : ''}`}>
+        <aside className={`panel inspector-panel side-panel${isRightCollapsed ? ' collapsed' : ''}`} ref={inspectorPanelRef}>
           <div className="side-panel-header">
             {!isRightCollapsed ? (
               <div>
@@ -2239,7 +2312,7 @@ function App() {
 
           {!isRightCollapsed ? (
             <>
-              <div className="inspector-tabs" role="tablist" aria-label="Inspection sections">
+              <div className="inspector-tabs" role="tablist" aria-label="Inspection sections" data-fit-container>
                 {availableInspectorTabs.map((tab) => (
                   <button
                     key={tab}

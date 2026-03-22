@@ -9,6 +9,18 @@ function openWorkspaceSection(name: 'File' | 'Inspect' | 'Repair' | 'Export') {
   fireEvent.click(screen.getByRole('button', { name }));
 }
 
+function setElementSize(
+  element: Element,
+  size: Partial<Record<'clientWidth' | 'scrollWidth' | 'clientHeight' | 'scrollHeight', number>>,
+) {
+  Object.entries(size).forEach(([key, value]) => {
+    Object.defineProperty(element, key, {
+      configurable: true,
+      value,
+    });
+  });
+}
+
 function createFontArrayBuffer(familyName = 'Uploaded Workbench') {
   const path = new opentype.Path();
   path.moveTo(0, 0);
@@ -165,6 +177,66 @@ describe('App', () => {
     expect(screen.getByText(/media element can be preserved in a browser\/runtime SVG profile/)).toBeInTheDocument();
   });
 
+  it('marks constrained inspection containers to wrap instead of overflowing', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg" baseProfile="tiny">
+          <video href="movie.mp4" width="10" height="10" />
+          <animate attributeName="x" from="0" to="10" dur="1s" repeatCount="indefinite" />
+          <use href="#missing" />
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Export');
+
+    await waitFor(() => {
+      expect(screen.getByText('Workflow scorecards')).toBeInTheDocument();
+    });
+
+    const inspectionTabs = screen.getByRole('tablist', { name: 'Inspection sections' });
+    const workflowSection = screen.getByText('Workflow scorecards').closest('section');
+    const exportReadinessSection = screen.getByText('Export readiness').closest('section');
+    const scorecards = workflowSection?.querySelector('.readiness-scorecards');
+    const scorecardHeaders = workflowSection?.querySelectorAll('.readiness-scorecard .readiness-header');
+    const metricsGrid = exportReadinessSection?.querySelector('.metrics-grid');
+    const blockingRow = screen.getByText(/media element can be preserved in a browser\/runtime SVG profile/).closest('li');
+
+    expect(scorecards).not.toBeNull();
+    expect(scorecardHeaders?.length).toBeGreaterThan(0);
+    expect(metricsGrid).not.toBeNull();
+    expect(blockingRow).not.toBeNull();
+
+    setElementSize(inspectionTabs, { clientWidth: 220, scrollWidth: 380 });
+    setElementSize(scorecards as Element, { clientWidth: 300, scrollWidth: 300 });
+    Array.from((scorecards as Element).children).forEach((card) => {
+      setElementSize(card, { clientWidth: 136, scrollWidth: 228 });
+    });
+    Array.from(scorecardHeaders ?? []).forEach((header) => {
+      setElementSize(header, { clientWidth: 136, scrollWidth: 214 });
+    });
+    setElementSize(metricsGrid as Element, { clientWidth: 300, scrollWidth: 300 });
+    Array.from((metricsGrid as Element).children).forEach((metric) => {
+      setElementSize(metric, { clientWidth: 136, scrollWidth: 184 });
+    });
+    setElementSize(blockingRow as Element, { clientWidth: 190, scrollWidth: 320 });
+
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => {
+      expect(inspectionTabs).toHaveAttribute('data-fit-state', 'wrap');
+      expect(scorecards).toHaveAttribute('data-fit-state', 'wrap');
+      expect(metricsGrid).toHaveAttribute('data-fit-state', 'wrap');
+      expect(blockingRow).toHaveAttribute('data-fit-state', 'wrap');
+    });
+
+    scorecardHeaders?.forEach((header) => {
+      expect(header).toHaveAttribute('data-fit-state', 'wrap');
+    });
+  });
+
   it('strips authoring metadata from the repair panel', async () => {
     render(<App />);
 
@@ -269,10 +341,30 @@ describe('App', () => {
   it('switches the inspection area to the clicked preview element', async () => {
     const { container } = render(<App />);
 
+    const previewSurface = screen.getByLabelText('SVG preview area');
     const previewText = container.querySelector('.svg-preview-frame svg text');
     expect(previewText).not.toBeNull();
 
-    fireEvent.click(previewText!);
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+    const elementFromPoint = vi.fn(() => previewText);
+
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: elementFromPoint,
+    });
+
+    fireEvent.pointerDown(previewSurface, {
+      button: 0,
+      pointerId: 1,
+      clientX: 24,
+      clientY: 18,
+    });
+    fireEvent.pointerUp(previewSurface, {
+      button: 0,
+      pointerId: 1,
+      clientX: 24,
+      clientY: 18,
+    });
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Selected element' })).toBeInTheDocument();
@@ -281,6 +373,12 @@ describe('App', () => {
     expect(screen.getByText('text', { selector: '.selection-tag' })).toBeInTheDocument();
     expect(screen.getByText('SVG Workbench sample', { selector: '.selection-copy' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Selection' })).toHaveAttribute('aria-selected', 'true');
+
+    if (originalElementFromPoint) {
+      Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+    } else {
+      Reflect.deleteProperty(document, 'elementFromPoint');
+    }
   });
 
   it('highlights risky preview nodes when hovering a risk entry', async () => {
@@ -340,6 +438,7 @@ describe('App', () => {
       expect(screen.getByText('Download')).toBeInTheDocument();
       expect(screen.getByText('Share')).toBeInTheDocument();
 
+      fireEvent.click(screen.getByText('Download'));
       fireEvent.click(screen.getByRole('button', { name: 'Download geometry-safe' }));
       openWorkspaceSection('Export');
 
@@ -350,6 +449,7 @@ describe('App', () => {
       expect(exportReport?.textContent).toContain('Geometry-safe SVG');
 
       openWorkspaceSection('File');
+      fireEvent.click(screen.getByText('Share'));
       fireEvent.click(screen.getByRole('button', { name: 'Copy current' }));
 
       openWorkspaceSection('Export');
