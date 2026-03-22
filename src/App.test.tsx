@@ -1,7 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import * as opentype from 'opentype.js';
 import App from './App';
+import { EMPTY_SVG_TEMPLATE } from './lib/svg-source';
+
+function openWorkspaceSection(name: 'File' | 'Inspect' | 'Repair' | 'Export') {
+  fireEvent.click(screen.getByRole('button', { name }));
+}
 
 function createFontArrayBuffer(familyName = 'Uploaded Workbench') {
   const path = new opentype.Path();
@@ -58,8 +64,12 @@ describe('App', () => {
     render(<App />);
 
     expect(screen.getAllByText('sample.svg').length).toBeGreaterThan(0);
-    expect(screen.getByText('Structure analysis')).toBeInTheDocument();
-    expect(screen.getByText('Export readiness')).toBeInTheDocument();
+    expect(screen.getByText('Document stats')).toBeInTheDocument();
+    expect(screen.getByText('Featured tags')).toBeInTheDocument();
+
+    openWorkspaceSection('Inspect');
+    fireEvent.click(screen.getByRole('tab', { name: 'Warnings' }));
+
     expect(screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.')).toBeInTheDocument();
   });
 
@@ -72,11 +82,120 @@ describe('App', () => {
       },
     });
 
+    openWorkspaceSection('Export');
+
     await waitFor(() => {
-      expect(screen.getByText('Blocked', { selector: '.readiness-badge' })).toBeInTheDocument();
+      expect(screen.getAllByText('Blocked', { selector: '.readiness-badge' }).length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText('1 text element still need conversion support or embedded fonts for geometry-only export.')).toBeInTheDocument();
+    expect(screen.getAllByText('1 text element still need conversion support or embedded fonts for geometry-only export.').length).toBeGreaterThan(0);
+  });
+
+  it('shows runtime, defs, and authoring inventory cards in inspect overview', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" baseProfile="tiny">
+          <metadata />
+          <defs><linearGradient id="g"><stop offset="0%" stop-color="#fff" /></linearGradient></defs>
+          <style>.shape { fill: url(#g); }</style>
+          <a href="https://example.com/asset"><rect inkscape:label="Layer 1" class="shape" width="10" height="10" /></a>
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Inspect');
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Runtime features')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Defs and references')).toBeInTheDocument();
+    expect(screen.getByText('Authoring metadata')).toBeInTheDocument();
+    expect(screen.getByText('tiny')).toBeInTheDocument();
+    expect(screen.getByText('inkscape')).toBeInTheDocument();
+  });
+
+  it('shows runtime-specific export guidance for media-bearing svg tiny files', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: readFileSync('tests/SVG/video1.svg', 'utf8'),
+      },
+    });
+
+    openWorkspaceSection('Export');
+
+    await waitFor(() => {
+      expect(screen.getByText('Export guidance')).toBeInTheDocument();
+    });
+
+    const exportGuidanceSection = screen.getByText('Export guidance').closest('section');
+    expect(exportGuidanceSection?.textContent).toContain('Keep a browser/runtime SVG profile if you need embedded media playback');
+    expect(exportGuidanceSection?.textContent).toContain('Native SVG animation is preserved best in self-contained browser SVG output');
+    expect(screen.getByText(/1 media element still depend on SVG Tiny or browser playback support/)).toBeInTheDocument();
+  });
+
+  it('shows separate workflow readiness scorecards for geometry-safe and browser/runtime svg', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg" baseProfile="tiny">
+          <video href="movie.mp4" width="10" height="10" />
+          <animate attributeName="x" from="0" to="10" dur="1s" repeatCount="indefinite" />
+          <use href="#missing" />
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Export');
+
+    await waitFor(() => {
+      expect(screen.getByText('Workflow scorecards')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Geometry-safe export')).toBeInTheDocument();
+    expect(screen.getByText('Browser/runtime SVG')).toBeInTheDocument();
+    const workflowSection = screen.getByText('Workflow scorecards').closest('section');
+    expect(workflowSection?.textContent).toContain('This file is suitable for browser/runtime SVG after cleaning the remaining broken, chained, or external dependency refs.');
+    expect(screen.getByText(/media element can be preserved in a browser\/runtime SVG profile/)).toBeInTheDocument();
+  });
+
+  it('strips authoring metadata from the repair panel', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd">
+          <metadata />
+          <sodipodi:namedview inkscape:current-layer="layer1" />
+          <rect inkscape:label="Layer 1" width="10" height="10" />
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Repair');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Strip 4 authoring metadata items' })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Strip 4 authoring metadata items' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Removed \d+ authoring metadata items from the SVG\./)).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    expect(sourceEditor.value).not.toContain('inkscape:');
+    expect(sourceEditor.value).not.toContain('sodipodi:');
+    expect(sourceEditor.value).not.toContain('<metadata');
   });
 
   it('shows parse error feedback when the source is invalid', async () => {
@@ -87,18 +206,314 @@ describe('App', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Parse error')).toBeInTheDocument();
+      expect(screen.getAllByText('Parse error').length).toBeGreaterThan(0);
+    });
+    expect(screen.getByRole('button', { name: 'Optimize' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Prettify' })).toBeDisabled();
+  });
+
+  it('shows editor cursor location and document metrics while editing source', () => {
+    render(<App />);
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    const nextValue = '<svg>\n  <g>\n    <rect />\n  </g>\n</svg>';
+    fireEvent.change(sourceEditor, {
+      target: {
+        value: nextValue,
+      },
+    });
+    fireEvent.select(sourceEditor, {
+      target: {
+        selectionStart: 18,
+        selectionEnd: 18,
+      },
+    });
+
+    expect(screen.getByText(/Line \d+, Col \d+/)).toBeInTheDocument();
+    expect(screen.getByText('5 lines')).toBeInTheDocument();
+    expect(screen.getByText(`${nextValue.length} characters`)).toBeInTheDocument();
+  });
+
+  it('provides optimize, prettify, and clear source actions in the file editor', async () => {
+    render(<App />);
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    fireEvent.change(sourceEditor, {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><g><rect width="10" height="10" /></g></svg>',
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prettify' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Prettified SVG source.')).toBeInTheDocument();
+    });
+    expect(sourceEditor.value).toContain('\n  <g>\n');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Optimized SVG source.')).toBeInTheDocument();
+    });
+    expect(sourceEditor.value).not.toContain('\n');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Cleared the source editor to a blank SVG template.')).toBeInTheDocument();
+    });
+    expect(sourceEditor.value).toBe(EMPTY_SVG_TEMPLATE);
+  });
+
+  it('switches the inspection area to the clicked preview element', async () => {
+    const { container } = render(<App />);
+
+    const previewText = container.querySelector('.svg-preview-frame svg text');
+    expect(previewText).not.toBeNull();
+
+    fireEvent.click(previewText!);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Selected element' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('text', { selector: '.selection-tag' })).toBeInTheDocument();
+    expect(screen.getByText('SVG Workbench sample', { selector: '.selection-copy' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Selection' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('highlights risky preview nodes when hovering a risk entry', async () => {
+    const { container } = render(<App />);
+
+    openWorkspaceSection('Inspect');
+    fireEvent.click(screen.getByRole('tab', { name: 'Warnings' }));
+
+    const riskEntry = screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.').closest('li');
+    expect(riskEntry).not.toBeNull();
+
+    fireEvent.mouseEnter(riskEntry!);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.svg-preview-frame [data-svg-node-hovered="true"]').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.mouseLeave(riskEntry!);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.svg-preview-frame [data-svg-node-hovered="true"]').length).toBe(0);
     });
   });
 
-  it('applies shape normalization from the repair panel', async () => {
+  it('supports preview pan and zoom controls for detailed artwork', () => {
     render(<App />);
+
+    const viewport = screen.getByLabelText('Preview viewport');
+    expect(viewport).toHaveStyle({ transform: 'translate(0px, 0px) scale(1)' });
+    expect(screen.getByText('100%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pan right' }));
+
+    expect(screen.getByText('125%')).toBeInTheDocument();
+    expect(viewport).toHaveStyle({ transform: 'translate(36px, 0px) scale(1.25)' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
+
+    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(viewport).toHaveStyle({ transform: 'translate(0px, 0px) scale(1)' });
+  });
+
+  it('groups intake, download, and share actions near the preview workspace', async () => {
+    const writeText = vi.fn(async () => undefined);
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    try {
+      render(<App />);
+
+      const workflowBar = screen.getByRole('toolbar', { name: 'Preview workspace actions' });
+      expect(workflowBar).toBeInTheDocument();
+      expect(screen.getByText('Intake')).toBeInTheDocument();
+      expect(screen.getByText('Download')).toBeInTheDocument();
+      expect(screen.getByText('Share')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Download geometry-safe' }));
+      openWorkspaceSection('Export');
+
+      await waitFor(() => {
+        expect(screen.getByText('Last export')).toBeInTheDocument();
+      });
+      const exportReport = screen.getByText('Last export').closest('.export-report');
+      expect(exportReport?.textContent).toContain('Geometry-safe SVG');
+
+      openWorkspaceSection('File');
+      fireEvent.click(screen.getByRole('button', { name: 'Copy current' }));
+
+      openWorkspaceSection('Export');
+
+      await waitFor(() => {
+        expect(screen.getByText('Last copy')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Current')).toBeInTheDocument();
+    } finally {
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      }
+    }
+  });
+
+  it('applies shape normalization from the repair panel', async () => {
+    const { container } = render(<App />);
+    openWorkspaceSection('Repair');
 
     fireEvent.click(screen.getByRole('button', { name: 'Convert 2 shape primitives to paths' }));
 
     await waitFor(() => {
       expect(screen.getByText('Converted 2 shape primitives into path elements.')).toBeInTheDocument();
     });
+
+    expect(screen.getByLabelText('Recently changed preview nodes')).toBeInTheDocument();
+    expect(container.querySelectorAll('.svg-preview-frame [data-svg-node-changed="true"]').length).toBeGreaterThan(0);
+  });
+
+  it('outlines supported stroke-driven geometry from the repair panel', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="0" x2="10" y2="0" stroke="red" stroke-width="4" fill="none" /></svg>',
+      },
+    });
+
+    openWorkspaceSection('Repair');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Outline 1 stroke-driven nodes' })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Outline 1 stroke-driven nodes' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Outlined 1 stroke-driven node into filled geometry.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    expect(sourceEditor.value).toContain('<path');
+    expect(sourceEditor.value).not.toContain('stroke=');
+  });
+
+  it('cleans near-open, duplicate, and tiny paths from the repair panel', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg">
+          <path d="M0 0L10 0L0 0.1" fill="none" stroke="#000" />
+          <path d="M20 20L30 20" stroke="#000" />
+          <path d="M20 20L30 20" stroke="#000" />
+          <path d="M40 40" />
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Repair');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Clean 3 paths' })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clean 3 paths' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Cleaned 3 paths by closing near-open paths, joining fragments, repairing polygon winding, stabilizing self-intersections, or removing duplicate and tiny geometry.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    expect((sourceEditor.value.match(/<path/g) ?? []).length).toBe(2);
+    expect(sourceEditor.value).toMatch(/0\.1[zZ]/);
+  });
+
+  it('cleans broken local refs and non-link external dependency refs from the repair panel', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g" xlink:href="#missing" xmlns:xlink="http://www.w3.org/1999/xlink" /></defs>
+          <use href="#missing" />
+          <image href="https://example.com/asset.png" width="10" height="10" />
+          <a href="https://example.com/page"><rect width="10" height="10" /></a>
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Repair');
+
+    const repairSection = screen.getByText('Safe normalization').closest('section');
+    const getReferenceCleanupButton = () => Array.from(repairSection?.querySelectorAll('button') ?? []).find((button) => button.textContent?.includes('broken/external refs')) as HTMLButtonElement | undefined;
+
+    await waitFor(() => {
+      expect(getReferenceCleanupButton()).toBeEnabled();
+    });
+
+    fireEvent.click(getReferenceCleanupButton()!);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cleaned 3 broken, chained, or external dependency references from the SVG.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    expect(sourceEditor.value).not.toContain('<use');
+    expect(sourceEditor.value).not.toContain('<image');
+    expect(sourceEditor.value).not.toContain('xlink:href="#missing"');
+    expect(sourceEditor.value).toContain('<a href="https://example.com/page">');
+  });
+
+  it('cleans invalid chained href targets from the repair panel', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: `<svg xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="g" xlink:href="#missing" xmlns:xlink="http://www.w3.org/1999/xlink" />
+            <linearGradient id="g-chain" xlink:href="#g" xmlns:xlink="http://www.w3.org/1999/xlink" />
+          </defs>
+          <use href="#g-chain" />
+        </svg>`,
+      },
+    });
+
+    openWorkspaceSection('Repair');
+
+    const repairSection = screen.getByText('Safe normalization').closest('section');
+    const getReferenceCleanupButton = () => Array.from(repairSection?.querySelectorAll('button') ?? []).find((button) => button.textContent?.includes('broken/external refs')) as HTMLButtonElement | undefined;
+
+    await waitFor(() => {
+      expect(getReferenceCleanupButton()).toBeEnabled();
+    });
+
+    fireEvent.click(getReferenceCleanupButton()!);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cleaned 3 broken, chained, or external dependency references from the SVG.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+
+    const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+    expect(sourceEditor.value).not.toContain('<use');
+    expect(sourceEditor.value).not.toContain('xlink:href="#missing"');
+    expect(sourceEditor.value).not.toContain('xlink:href="#g"');
   });
 
   it('applies container transform baking from the repair panel', async () => {
@@ -109,6 +524,8 @@ describe('App', () => {
         value: '<svg xmlns="http://www.w3.org/2000/svg"><g transform="translate(5 7)"><rect x="0" y="0" width="10" height="10" /></g></svg>',
       },
     });
+
+    openWorkspaceSection('Repair');
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Bake 1 container transforms' })).toBeEnabled();
@@ -130,6 +547,8 @@ describe('App', () => {
       },
     });
 
+    openWorkspaceSection('Repair');
+
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Expand 1 use references' })).toBeEnabled();
     });
@@ -149,6 +568,8 @@ describe('App', () => {
         value: '<svg xmlns="http://www.w3.org/2000/svg"><style>.shape { fill: red; }</style><rect class="shape" width="10" height="10" /></svg>',
       },
     });
+
+    openWorkspaceSection('Repair');
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Inline 1 simple style rules' })).toBeEnabled();
@@ -171,6 +592,8 @@ describe('App', () => {
       },
     });
 
+    openWorkspaceSection('Repair');
+
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Convert 1 text elements to paths' })).toBeEnabled();
     });
@@ -192,6 +615,8 @@ describe('App', () => {
         value: '<svg xmlns="http://www.w3.org/2000/svg"><text font-family="Missing Font" font-size="32" x="0" y="40">A</text></svg>',
       },
     });
+
+    openWorkspaceSection('Repair');
 
     await waitFor(() => {
       expect(screen.getByLabelText('Map Missing Font font family')).toBeInTheDocument();
@@ -237,6 +662,8 @@ describe('App', () => {
       },
     });
 
+    openWorkspaceSection('Repair');
+
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Normalize all safe repairs (6)' })).toBeEnabled();
     });
@@ -248,7 +675,7 @@ describe('App', () => {
     });
   });
 
-  it('downloads the normalized export from the export panel', async () => {
+  it('downloads the geometry-safe export from the export panel', async () => {
     const createObjectURL = vi.fn(() => 'blob:test-url');
     const revokeObjectURL = vi.fn();
     const click = vi.fn();
@@ -263,14 +690,15 @@ describe('App', () => {
 
     try {
       render(<App />);
-      fireEvent.click(screen.getByRole('button', { name: 'Download Normalized SVG' }));
+      openWorkspaceSection('Export');
+      fireEvent.click(screen.getByRole('button', { name: 'Download Geometry-safe SVG' }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Downloaded sample\.normalized\.svg/)).toBeInTheDocument();
+        expect(screen.getByText('Last export')).toBeInTheDocument();
       });
 
-      expect(screen.getByText('Last export')).toBeInTheDocument();
-      expect(screen.getByText('Normalized SVG')).toBeInTheDocument();
+      expect(screen.getByText('Geometry-safe SVG')).toBeInTheDocument();
+      expect(screen.getByText('sample.geometry.svg', { selector: '.export-report-file' })).toBeInTheDocument();
       expect(screen.getByText('2 shapes converted to paths')).toBeInTheDocument();
     } finally {
       URL.createObjectURL = originalCreateObjectURL;
@@ -281,6 +709,141 @@ describe('App', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-url');
+  });
+
+  it('downloads the browser/runtime export from the export panel', async () => {
+    const createObjectURL = vi.fn<(obj: Blob | MediaSource) => string>(() => 'blob:test-url');
+    const revokeObjectURL = vi.fn();
+    const click = vi.fn();
+    let exportedObject: unknown = null;
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalClick = HTMLAnchorElement.prototype.click;
+
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    HTMLAnchorElement.prototype.click = click;
+    createObjectURL.mockImplementation((blob: Blob | MediaSource) => {
+      exportedObject = blob;
+      return 'blob:test-url';
+    });
+
+    try {
+      render(<App />);
+      fireEvent.change(screen.getByLabelText('SVG source'), {
+        target: {
+          value: '<svg xmlns="http://www.w3.org/2000/svg" baseProfile="tiny"><metadata /><video href="movie.mp4" width="10" height="10" /><use href="#missing" /></svg>',
+        },
+      });
+
+      openWorkspaceSection('Export');
+      fireEvent.click(screen.getByRole('button', { name: /Browser\/runtime/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Download Browser/runtime SVG' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Last export')).toBeInTheDocument();
+      });
+
+      const exportReport = screen.getByText('Last export').closest('.export-report');
+      expect(exportReport?.textContent).toContain('Browser/runtime SVG');
+      expect(screen.getByText('sample.runtime.svg', { selector: '.export-report-file' })).toBeInTheDocument();
+      expect(exportReport?.textContent).toContain('1 broken or chained references cleaned');
+      expect(exportReport?.textContent).toContain('1 authoring metadata items stripped');
+      expect(exportedObject).toBeInstanceOf(Blob);
+      const exportedBlob = exportedObject as Blob;
+      const blobText = await exportedBlob.text();
+      expect(blobText).toContain('movie.mp4');
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-url');
+  });
+
+  it('downloads a png snapshot for the selected export preset', async () => {
+    const createObjectURL = vi.fn<(obj: Blob | MediaSource) => string>(() => 'blob:test-url');
+    const revokeObjectURL = vi.fn();
+    const click = vi.fn();
+    const drawImage = vi.fn();
+    const createdObjects: Array<Blob | MediaSource> = [];
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    const originalImage = globalThis.Image;
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, 'createElement');
+
+    class MockImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => {
+          this.onload?.();
+        });
+      }
+    }
+
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    HTMLAnchorElement.prototype.click = click;
+    globalThis.Image = MockImage as unknown as typeof Image;
+    createObjectURL.mockImplementation((obj: Blob | MediaSource) => {
+      createdObjects.push(obj);
+      return `blob:test-url-${createdObjects.length}`;
+    });
+    createElementSpy.mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+      if (tagName === 'canvas') {
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => ({ drawImage }),
+          toBlob: (callback: BlobCallback, type?: string) => {
+            callback(new Blob(['png-bytes'], { type: type ?? 'image/png' }));
+          },
+        } as unknown as HTMLCanvasElement;
+      }
+
+      return originalCreateElement(tagName as keyof HTMLElementTagNameMap, options);
+    }) as typeof document.createElement);
+
+    try {
+      render(<App />);
+      fireEvent.change(screen.getByLabelText('SVG source'), {
+        target: {
+          value: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="tomato" /></svg>',
+        },
+      });
+
+      openWorkspaceSection('Export');
+      fireEvent.click(screen.getByRole('button', { name: 'Download PNG snapshot' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Last export')).toBeInTheDocument();
+      });
+
+      const exportReport = screen.getByText('Last export').closest('.export-report');
+      const downloadedBlob = createdObjects.at(-1);
+
+      expect(exportReport?.textContent).toContain('Geometry-safe PNG snapshot');
+      expect(screen.getByText('sample.geometry.png', { selector: '.export-report-file' })).toBeInTheDocument();
+      expect(exportReport?.textContent).toContain('Rasterized to a 40 x 20 PNG snapshot.');
+      expect(downloadedBlob).toBeInstanceOf(Blob);
+      expect((downloadedBlob as Blob).type).toBe('image/png');
+      expect(drawImage).toHaveBeenCalledTimes(1);
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalClick;
+      globalThis.Image = originalImage;
+      createElementSpy.mockRestore();
+    }
   });
 
   it('downloads the blender-friendly preset from the export panel', async () => {
@@ -298,14 +861,16 @@ describe('App', () => {
 
     try {
       render(<App />);
+      openWorkspaceSection('Export');
       fireEvent.click(screen.getByRole('button', { name: /Blender-friendly/ }));
       fireEvent.click(screen.getByRole('button', { name: 'Download Blender-friendly SVG' }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Downloaded sample\.blender\.svg/)).toBeInTheDocument();
+        expect(screen.getByText('Last export')).toBeInTheDocument();
       });
 
       expect(screen.getByText('Blender-friendly SVG')).toBeInTheDocument();
+      expect(screen.getByText('sample.blender.svg', { selector: '.export-report-file' })).toBeInTheDocument();
     } finally {
       URL.createObjectURL = originalCreateObjectURL;
       URL.revokeObjectURL = originalRevokeObjectURL;
@@ -328,6 +893,7 @@ describe('App', () => {
 
     try {
       render(<App />);
+      openWorkspaceSection('Export');
       fireEvent.click(screen.getByRole('button', { name: 'Download current SVG' }));
 
       await waitFor(() => {
@@ -342,7 +908,7 @@ describe('App', () => {
     }
   });
 
-  it('copies the normalized preset to the clipboard', async () => {
+  it('copies the geometry-safe preset to the clipboard', async () => {
     const writeText = vi.fn(async () => undefined);
     const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 
@@ -353,13 +919,14 @@ describe('App', () => {
 
     try {
       render(<App />);
-      fireEvent.click(screen.getByRole('button', { name: 'Copy Normalized SVG' }));
+      openWorkspaceSection('Export');
+      fireEvent.click(screen.getByRole('button', { name: 'Copy Geometry-safe SVG' }));
 
       await waitFor(() => {
         expect(screen.getByText('Last copy')).toBeInTheDocument();
       });
 
-      expect(screen.getByText('Normalized SVG')).toBeInTheDocument();
+      expect(screen.getByText('Geometry-safe SVG')).toBeInTheDocument();
       expect(writeText).toHaveBeenCalledTimes(1);
     } finally {
       if (originalClipboard) {

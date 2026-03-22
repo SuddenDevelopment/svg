@@ -4,6 +4,7 @@ import * as opentype from 'opentype.js';
 import { normalizeFontFamilyName } from './svg-fonts';
 import type { TextConversionOptions, UploadedFontAsset } from './svg-fonts';
 import { SVGPathData } from 'svg-pathdata';
+import type { SVGCommand } from 'svg-pathdata';
 
 export type NormalizationOpportunities = {
   primitiveShapeCount: number;
@@ -25,6 +26,10 @@ export type NormalizationOpportunities = {
   blockedUseCount: number;
   inlineableStyleRuleCount: number;
   blockedStyleRuleCount: number;
+  strokeOutlineCount: number;
+  blockedStrokeOutlineCount: number;
+  pathCleanupCount: number;
+  referenceCleanupCount: number;
 };
 
 export type NormalizationResult = {
@@ -41,15 +46,21 @@ export type SafeRepairResult = {
     styleRules: number;
     textPaths: number;
     shapes: number;
+    strokeOutlines: number;
+    pathCleanups: number;
     directTransforms: number;
     containerTransforms: number;
     useExpansions: number;
     blockedStyleRules: number;
     blockedTexts: number;
+    blockedStrokeOutlines: number;
     blockedContainers: number;
     blockedUses: number;
   };
 };
+
+const removableAuthoringPrefixes = new Set(['inkscape', 'sodipodi', 'dc', 'cc', 'rdf']);
+const removableAuthoringElementPrefixes = new Set(['inkscape', 'sodipodi']);
 
 type Matrix = {
   a: number;
@@ -96,13 +107,94 @@ type TextConversionInfo = {
   textAnchor: 'start' | 'middle' | 'end';
 };
 
+type StrokeOutlineCandidate = {
+  element: Element;
+  stroke: string;
+  strokeOpacity: string | null;
+  pathData: string;
+  fillRule: 'evenodd' | null;
+};
+
+type ReferenceCleanupAction = {
+  type: 'remove-element' | 'remove-attributes';
+  element: Element;
+  reason: 'broken-local' | 'external-dependency' | 'unsafe';
+};
+
+type ReferenceCleanupOptions = {
+  preserveExternalDependencies?: boolean;
+};
+
+type PathCleanupAction = {
+  remove?: boolean;
+  pathData?: string;
+  fillRule?: string | null;
+};
+
+type Point = {
+  x: number;
+  y: number;
+};
+
+type OpenPathJoinCandidate = {
+  start: Point;
+  end: Point;
+};
+
+type PolygonRing = {
+  points: Point[];
+  signedArea: number;
+};
+
+type PathCleanupState = {
+  element: Element;
+  attributeSignature: string;
+  pathData: string;
+  commands: SVGCommand[];
+  joinCandidate: OpenPathJoinCandidate | null;
+  action: PathCleanupAction;
+};
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const primitiveTags = new Set(['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon']);
 const transformableTags = new Set(['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon']);
+const outlineableStrokeTags = new Set(['rect', 'circle', 'ellipse', 'line', 'polyline']);
 const containerTags = new Set(['g', 'svg', 'defs', 'symbol']);
 const nonVisualTags = new Set(['title', 'desc', 'metadata']);
+const removableReferenceElementTags = new Set(['use', 'image', 'feimage', 'script', 'mpath']);
 const transformedContainerSelector = 'g[transform], svg[transform], defs[transform], symbol[transform]';
 const useAttributeOmissions = new Set(['href', 'xlink:href', 'x', 'y', 'width', 'height', 'transform', 'id']);
+const pathCleanupAttributeOmissions = new Set(['id', 'd']);
+const strokeOutlineAttributeOmissions = new Set([
+  'd',
+  'x',
+  'y',
+  'width',
+  'height',
+  'rx',
+  'ry',
+  'cx',
+  'cy',
+  'r',
+  'x1',
+  'y1',
+  'x2',
+  'y2',
+  'points',
+  'fill',
+  'fill-opacity',
+  'fill-rule',
+  'stroke',
+  'stroke-width',
+  'stroke-opacity',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'stroke-miterlimit',
+  'stroke-dasharray',
+  'stroke-dashoffset',
+  'vector-effect',
+  'paint-order',
+]);
 const simpleSelectorPattern = /^(?:[a-zA-Z_][\w-]*)?(?:[#.][\w-]+)+$|^(?:[a-zA-Z_][\w-]*)$|^(?:[#.][\w-]+)+$/;
 const textAttributeOmissions = new Set([
   'x',
@@ -126,6 +218,10 @@ const textAttributeOmissions = new Set([
   'shape-inside',
 ]);
 
+function getLocalTagName(element: Element) {
+  return element.localName || element.tagName.split(':').at(-1) || element.tagName;
+}
+
 function parseSvgRoot(source: string) {
   const documentRoot = new DOMParser().parseFromString(source, 'image/svg+xml');
   const parserError = documentRoot.querySelector('parsererror');
@@ -134,7 +230,7 @@ function parseSvgRoot(source: string) {
   }
 
   const root = documentRoot.documentElement;
-  if (root.tagName.toLowerCase() !== 'svg') {
+  if (getLocalTagName(root).toLowerCase() !== 'svg') {
     throw new Error('The provided markup does not have an <svg> root element.');
   }
 
@@ -206,6 +302,11 @@ function parsePoints(value: string | null) {
   return points;
 }
 
+function formatNumber(value: number) {
+  const rounded = Number.parseFloat(value.toFixed(3));
+  return Number.isFinite(rounded) ? `${rounded}` : '0';
+}
+
 function clampRadius(radius: number, limit: number) {
   return Math.max(0, Math.min(radius, limit));
 }
@@ -238,12 +339,20 @@ function rectToPath(element: Element) {
   ].join(' ');
 }
 
+function rectPathFromNumbers(x: number, y: number, width: number, height: number) {
+  return `M${formatNumber(x)} ${formatNumber(y)}H${formatNumber(x + width)}V${formatNumber(y + height)}H${formatNumber(x)}Z`;
+}
+
 function circleToPath(element: Element) {
   const cx = parseNumber(element.getAttribute('cx'));
   const cy = parseNumber(element.getAttribute('cy'));
   const r = Math.max(0, parseNumber(element.getAttribute('r')));
 
   return `M${cx - r} ${cy}A${r} ${r} 0 1 0 ${cx + r} ${cy}A${r} ${r} 0 1 0 ${cx - r} ${cy}Z`;
+}
+
+function circlePathFromNumbers(cx: number, cy: number, radius: number) {
+  return `M${formatNumber(cx - radius)} ${formatNumber(cy)}A${formatNumber(radius)} ${formatNumber(radius)} 0 1 0 ${formatNumber(cx + radius)} ${formatNumber(cy)}A${formatNumber(radius)} ${formatNumber(radius)} 0 1 0 ${formatNumber(cx - radius)} ${formatNumber(cy)}Z`;
 }
 
 function ellipseToPath(element: Element) {
@@ -253,6 +362,10 @@ function ellipseToPath(element: Element) {
   const ry = Math.max(0, parseNumber(element.getAttribute('ry')));
 
   return `M${cx - rx} ${cy}A${rx} ${ry} 0 1 0 ${cx + rx} ${cy}A${rx} ${ry} 0 1 0 ${cx - rx} ${cy}Z`;
+}
+
+function ellipsePathFromNumbers(cx: number, cy: number, rx: number, ry: number) {
+  return `M${formatNumber(cx - rx)} ${formatNumber(cy)}A${formatNumber(rx)} ${formatNumber(ry)} 0 1 0 ${formatNumber(cx + rx)} ${formatNumber(cy)}A${formatNumber(rx)} ${formatNumber(ry)} 0 1 0 ${formatNumber(cx - rx)} ${formatNumber(cy)}Z`;
 }
 
 function lineToPath(element: Element) {
@@ -279,6 +392,34 @@ function polyPointsToPath(element: Element, closePath: boolean) {
     commands.push('Z');
   }
   return commands.join(' ');
+}
+
+function lineOutlinePathFromNumbers(x1: number, y1: number, x2: number, y2: number, strokeWidth: number, linecap: string) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.hypot(dx, dy);
+  if (length === 0 || strokeWidth <= 0) {
+    return '';
+  }
+
+  const half = strokeWidth / 2;
+  const tx = dx / length;
+  const ty = dy / length;
+  const nx = (-dy / length) * half;
+  const ny = (dx / length) * half;
+  const extension = linecap === 'square' ? half : 0;
+  const sx = x1 - tx * extension;
+  const sy = y1 - ty * extension;
+  const ex = x2 + tx * extension;
+  const ey = y2 + ty * extension;
+
+  return [
+    `M${formatNumber(sx + nx)} ${formatNumber(sy + ny)}`,
+    `L${formatNumber(ex + nx)} ${formatNumber(ey + ny)}`,
+    `L${formatNumber(ex - nx)} ${formatNumber(ey - ny)}`,
+    `L${formatNumber(sx - nx)} ${formatNumber(sy - ny)}`,
+    'Z',
+  ].join(' ');
 }
 
 function elementToPathData(element: Element) {
@@ -607,6 +748,888 @@ function getPresentationValue(element: Element, propertyName: string) {
   return null;
 }
 
+function hasVisiblePaint(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  return value.trim().toLowerCase() !== 'none';
+}
+
+function hasVisibleFill(element: Element) {
+  const fillValue = getPresentationValue(element, 'fill');
+  const fillOpacity = parseNumber(getPresentationValue(element, 'fill-opacity'), 1);
+
+  if (fillOpacity <= 0) {
+    return false;
+  }
+
+  if (!fillValue) {
+    return true;
+  }
+
+  return hasVisiblePaint(fillValue);
+}
+
+function hasVisibleStroke(element: Element) {
+  const strokeValue = getPresentationValue(element, 'stroke');
+  const strokeOpacity = parseNumber(getPresentationValue(element, 'stroke-opacity'), 1);
+  const strokeWidth = parseNumber(getPresentationValue(element, 'stroke-width'), 1);
+
+  return hasVisiblePaint(strokeValue) && strokeOpacity > 0 && strokeWidth > 0;
+}
+
+function isStrokeOnlyElement(element: Element) {
+  return hasVisibleStroke(element) && !hasVisibleFill(element);
+}
+
+function createStrokeOutlinePathData(element: Element, strokeWidth: number) {
+  const tagName = getLocalTagName(element).toLowerCase();
+
+  switch (tagName) {
+    case 'rect': {
+      const width = parseNumber(element.getAttribute('width'));
+      const height = parseNumber(element.getAttribute('height'));
+      const hasRoundedCorners = parseNumber(element.getAttribute('rx')) > 0 || parseNumber(element.getAttribute('ry')) > 0;
+      if (width <= 0 || height <= 0 || hasRoundedCorners) {
+        return { pathData: '', fillRule: null };
+      }
+
+      const x = parseNumber(element.getAttribute('x'));
+      const y = parseNumber(element.getAttribute('y'));
+      const half = strokeWidth / 2;
+      const outer = rectPathFromNumbers(x - half, y - half, width + strokeWidth, height + strokeWidth);
+      const innerWidth = width - strokeWidth;
+      const innerHeight = height - strokeWidth;
+      if (innerWidth <= 0 || innerHeight <= 0) {
+        return { pathData: outer, fillRule: null };
+      }
+
+      const inner = rectPathFromNumbers(x + half, y + half, innerWidth, innerHeight);
+      return { pathData: `${outer} ${inner}`, fillRule: 'evenodd' as const };
+    }
+    case 'circle': {
+      const cx = parseNumber(element.getAttribute('cx'));
+      const cy = parseNumber(element.getAttribute('cy'));
+      const radius = parseNumber(element.getAttribute('r'));
+      if (radius <= 0) {
+        return { pathData: '', fillRule: null };
+      }
+
+      const outerRadius = radius + strokeWidth / 2;
+      const innerRadius = radius - strokeWidth / 2;
+      const outer = circlePathFromNumbers(cx, cy, outerRadius);
+      if (innerRadius <= 0) {
+        return { pathData: outer, fillRule: null };
+      }
+
+      const inner = circlePathFromNumbers(cx, cy, innerRadius);
+      return { pathData: `${outer} ${inner}`, fillRule: 'evenodd' as const };
+    }
+    case 'ellipse': {
+      const cx = parseNumber(element.getAttribute('cx'));
+      const cy = parseNumber(element.getAttribute('cy'));
+      const rx = parseNumber(element.getAttribute('rx'));
+      const ry = parseNumber(element.getAttribute('ry'));
+      if (rx <= 0 || ry <= 0) {
+        return { pathData: '', fillRule: null };
+      }
+
+      const half = strokeWidth / 2;
+      const outer = ellipsePathFromNumbers(cx, cy, rx + half, ry + half);
+      const innerRx = rx - half;
+      const innerRy = ry - half;
+      if (innerRx <= 0 || innerRy <= 0) {
+        return { pathData: outer, fillRule: null };
+      }
+
+      const inner = ellipsePathFromNumbers(cx, cy, innerRx, innerRy);
+      return { pathData: `${outer} ${inner}`, fillRule: 'evenodd' as const };
+    }
+    case 'line': {
+      const linecap = (getPresentationValue(element, 'stroke-linecap') ?? 'butt').trim().toLowerCase();
+      if (linecap !== 'butt' && linecap !== 'square') {
+        return { pathData: '', fillRule: null };
+      }
+
+      return {
+        pathData: lineOutlinePathFromNumbers(
+          parseNumber(element.getAttribute('x1')),
+          parseNumber(element.getAttribute('y1')),
+          parseNumber(element.getAttribute('x2')),
+          parseNumber(element.getAttribute('y2')),
+          strokeWidth,
+          linecap,
+        ),
+        fillRule: null,
+      };
+    }
+    case 'polyline': {
+      const points = parsePoints(element.getAttribute('points'));
+      const linecap = (getPresentationValue(element, 'stroke-linecap') ?? 'butt').trim().toLowerCase();
+      if (points.length !== 2 || (linecap !== 'butt' && linecap !== 'square')) {
+        return { pathData: '', fillRule: null };
+      }
+
+      return {
+        pathData: lineOutlinePathFromNumbers(points[0][0], points[0][1], points[1][0], points[1][1], strokeWidth, linecap),
+        fillRule: null,
+      };
+    }
+    default:
+      return { pathData: '', fillRule: null };
+  }
+}
+
+function getStrokeOutlineCandidate(element: Element): StrokeOutlineCandidate | null {
+  if (!isStrokeOnlyElement(element)) {
+    return null;
+  }
+
+  const tagName = getLocalTagName(element).toLowerCase();
+  if (!outlineableStrokeTags.has(tagName)) {
+    return null;
+  }
+
+  const strokeDasharray = getPresentationValue(element, 'stroke-dasharray');
+  if (strokeDasharray && strokeDasharray.trim().toLowerCase() !== 'none') {
+    return null;
+  }
+
+  const vectorEffect = getPresentationValue(element, 'vector-effect');
+  if (vectorEffect && vectorEffect.trim().toLowerCase() !== 'none') {
+    return null;
+  }
+
+  const hasMarkers = ['marker-start', 'marker-mid', 'marker-end'].some((attributeName) => {
+    const value = getPresentationValue(element, attributeName);
+    return Boolean(value && value.trim().toLowerCase() !== 'none');
+  });
+  if (hasMarkers) {
+    return null;
+  }
+
+  const stroke = getPresentationValue(element, 'stroke');
+  const strokeWidth = parseNumber(getPresentationValue(element, 'stroke-width'), 1);
+  const { pathData, fillRule } = createStrokeOutlinePathData(element, strokeWidth);
+  if (!stroke || !pathData) {
+    return null;
+  }
+
+  return {
+    element,
+    stroke,
+    strokeOpacity: getPresentationValue(element, 'stroke-opacity'),
+    pathData,
+    fillRule,
+  };
+}
+
+function getStrokeOutlineOpportunities(root: SVGSVGElement) {
+  const strokeOnlyElements = [root, ...Array.from(root.querySelectorAll('*'))].filter((element) => isStrokeOnlyElement(element));
+  const strokeOutlineCount = strokeOnlyElements.filter((element) => Boolean(getStrokeOutlineCandidate(element))).length;
+
+  return {
+    strokeOutlineCount,
+    blockedStrokeOutlineCount: strokeOnlyElements.length - strokeOutlineCount,
+  };
+}
+
+function getPathCommandEndpoint(command: SVGCommand, currentPoint: { x: number; y: number }, subpathStart: { x: number; y: number }) {
+  switch (command.type) {
+    case SVGPathData.MOVE_TO:
+    case SVGPathData.LINE_TO:
+    case SVGPathData.CURVE_TO:
+    case SVGPathData.SMOOTH_CURVE_TO:
+    case SVGPathData.QUAD_TO:
+    case SVGPathData.SMOOTH_QUAD_TO:
+    case SVGPathData.ARC:
+      return { x: command.x, y: command.y };
+    case SVGPathData.HORIZ_LINE_TO:
+      return { x: command.x, y: currentPoint.y };
+    case SVGPathData.VERT_LINE_TO:
+      return { x: currentPoint.x, y: command.y };
+    case SVGPathData.CLOSE_PATH:
+      return { x: subpathStart.x, y: subpathStart.y };
+    default:
+      return currentPoint;
+  }
+}
+
+function closeNearClosedSubpaths(commands: SVGCommand[], tolerance = 0.25) {
+  const nextCommands: SVGCommand[] = [];
+  let currentPoint = { x: 0, y: 0 };
+  let subpathStart = { x: 0, y: 0 };
+  let subpathHasDrawing = false;
+  let subpathClosed = false;
+  let changed = 0;
+
+  const finalizeSubpath = () => {
+    if (!subpathHasDrawing || subpathClosed) {
+      return;
+    }
+
+    const distance = Math.hypot(currentPoint.x - subpathStart.x, currentPoint.y - subpathStart.y);
+    if (distance <= tolerance) {
+      nextCommands.push({ type: SVGPathData.CLOSE_PATH });
+      currentPoint = { ...subpathStart };
+      subpathClosed = true;
+      changed += 1;
+    }
+  };
+
+  commands.forEach((command) => {
+    if (command.type === SVGPathData.MOVE_TO) {
+      finalizeSubpath();
+      nextCommands.push(command);
+      currentPoint = { x: command.x, y: command.y };
+      subpathStart = { x: command.x, y: command.y };
+      subpathHasDrawing = false;
+      subpathClosed = false;
+      return;
+    }
+
+    nextCommands.push(command);
+    currentPoint = getPathCommandEndpoint(command, currentPoint, subpathStart);
+
+    if (command.type === SVGPathData.CLOSE_PATH) {
+      subpathHasDrawing = true;
+      subpathClosed = true;
+      return;
+    }
+
+    subpathHasDrawing = true;
+  });
+
+  finalizeSubpath();
+
+  return {
+    commands: nextCommands,
+    changed,
+  };
+}
+
+function getPathCleanupAttributeSignature(element: Element) {
+  const attributeSignature = Array.from(element.attributes)
+    .filter((attribute) => !pathCleanupAttributeOmissions.has(attribute.name))
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((attribute) => `${attribute.name}=${attribute.value}`)
+    .join(';');
+
+  return attributeSignature;
+}
+
+function getPathCleanupSignature(element: Element, commands: SVGCommand[]) {
+  return `${SVGPathData.encode(commands)}|${getPathCleanupAttributeSignature(element)}`;
+}
+
+function pointsAreNear(left: Point, right: Point, tolerance = 0.25) {
+  return Math.hypot(left.x - right.x, left.y - right.y) <= tolerance;
+}
+
+function getOpenPathJoinCandidate(commands: SVGCommand[]): OpenPathJoinCandidate | null {
+  if (commands.length < 2 || commands[0]?.type !== SVGPathData.MOVE_TO) {
+    return null;
+  }
+
+  let currentPoint = { x: commands[0].x, y: commands[0].y };
+  const subpathStart = { ...currentPoint };
+  let hasDrawing = false;
+
+  for (let index = 1; index < commands.length; index += 1) {
+    const command = commands[index];
+    if (command.type === SVGPathData.MOVE_TO || command.type === SVGPathData.CLOSE_PATH) {
+      return null;
+    }
+
+    currentPoint = getPathCommandEndpoint(command, currentPoint, subpathStart);
+    hasDrawing = true;
+  }
+
+  if (!hasDrawing || pointsAreNear(currentPoint, subpathStart)) {
+    return null;
+  }
+
+  return {
+    start: subpathStart,
+    end: currentPoint,
+  };
+}
+
+function joinPathCommands(first: SVGCommand[], second: SVGCommand[], tolerance = 0.25) {
+  const firstCandidate = getOpenPathJoinCandidate(first);
+  const secondCandidate = getOpenPathJoinCandidate(second);
+  if (!firstCandidate || !secondCandidate) {
+    return null;
+  }
+
+  if (!pointsAreNear(firstCandidate.end, secondCandidate.start, tolerance)) {
+    return null;
+  }
+
+  const joined = [...first];
+  if (!pointsAreNear(firstCandidate.end, secondCandidate.start, 0.0001)) {
+    joined.push({
+      type: SVGPathData.LINE_TO,
+      relative: false,
+      x: secondCandidate.start.x,
+      y: secondCandidate.start.y,
+    });
+  }
+
+  joined.push(...second.slice(1));
+  return joined;
+}
+
+function dedupeSequentialPoints(points: Point[]) {
+  return points.filter((point, index) => {
+    if (index === 0) {
+      return true;
+    }
+
+    return !pointsAreNear(point, points[index - 1], 0.0001);
+  });
+}
+
+function getSignedPolygonArea(points: Point[]) {
+  let area = 0;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += (current.x * next.y) - (next.x * current.y);
+  }
+
+  return area / 2;
+}
+
+function getPolygonRings(commands: SVGCommand[]): PolygonRing[] | null {
+  const rings: PolygonRing[] = [];
+  let currentPoints: Point[] = [];
+  let currentPoint: Point | null = null;
+  let subpathStart: Point | null = null;
+
+  const finalizeRing = () => {
+    if (!subpathStart || currentPoints.length < 3) {
+      return false;
+    }
+
+    const deduped = dedupeSequentialPoints(currentPoints);
+    if (deduped.length < 3) {
+      return false;
+    }
+
+    rings.push({
+      points: deduped,
+      signedArea: getSignedPolygonArea(deduped),
+    });
+
+    return true;
+  };
+
+  for (const command of commands) {
+    switch (command.type) {
+      case SVGPathData.MOVE_TO: {
+        if (currentPoints.length > 0) {
+          return null;
+        }
+
+        currentPoint = { x: command.x, y: command.y };
+        subpathStart = { ...currentPoint };
+        currentPoints = [{ ...currentPoint }];
+        break;
+      }
+      case SVGPathData.LINE_TO: {
+        if (!currentPoint) {
+          return null;
+        }
+
+        currentPoint = { x: command.x, y: command.y };
+        currentPoints.push({ ...currentPoint });
+        break;
+      }
+      case SVGPathData.HORIZ_LINE_TO: {
+        if (!currentPoint) {
+          return null;
+        }
+
+        currentPoint = { x: command.x, y: currentPoint.y };
+        currentPoints.push({ ...currentPoint });
+        break;
+      }
+      case SVGPathData.VERT_LINE_TO: {
+        if (!currentPoint) {
+          return null;
+        }
+
+        currentPoint = { x: currentPoint.x, y: command.y };
+        currentPoints.push({ ...currentPoint });
+        break;
+      }
+      case SVGPathData.CLOSE_PATH: {
+        if (!subpathStart || currentPoints.length === 0) {
+          return null;
+        }
+
+        if (!finalizeRing()) {
+          return null;
+        }
+
+        currentPoint = null;
+        subpathStart = null;
+        currentPoints = [];
+        break;
+      }
+      default:
+        return null;
+    }
+  }
+
+  if (currentPoints.length > 0) {
+    return null;
+  }
+
+  return rings.length > 0 ? rings : null;
+}
+
+function isPointInsidePolygon(point: Point, polygon: Point[]) {
+  let inside = false;
+
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const current = polygon[index];
+    const prior = polygon[previous];
+    const intersects = ((current.y > point.y) !== (prior.y > point.y))
+      && (point.x < ((prior.x - current.x) * (point.y - current.y)) / ((prior.y - current.y) || Number.EPSILON) + current.x);
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function reverseRingPoints(points: Point[]) {
+  return [points[0], ...points.slice(1).reverse()];
+}
+
+function getOrientationSign(area: number) {
+  if (Math.abs(area) <= 0.0001) {
+    return 0;
+  }
+
+  return area > 0 ? 1 : -1;
+}
+
+function getRingParentIndexes(rings: PolygonRing[]) {
+  return rings.map((ring, ringIndex) => {
+    let parentIndex = -1;
+    let parentArea = Number.POSITIVE_INFINITY;
+
+    rings.forEach((candidate, candidateIndex) => {
+      if (candidateIndex === ringIndex) {
+        return;
+      }
+
+      const candidateArea = Math.abs(candidate.signedArea);
+      const ringArea = Math.abs(ring.signedArea);
+      if (candidateArea <= ringArea) {
+        return;
+      }
+
+      if (!isPointInsidePolygon(ring.points[0], candidate.points)) {
+        return;
+      }
+
+      if (candidateArea < parentArea) {
+        parentIndex = candidateIndex;
+        parentArea = candidateArea;
+      }
+    });
+
+    return parentIndex;
+  });
+}
+
+function getCrossProduct(anchor: Point, left: Point, right: Point) {
+  return ((left.x - anchor.x) * (right.y - anchor.y)) - ((left.y - anchor.y) * (right.x - anchor.x));
+}
+
+function isValueWithinRange(value: number, left: number, right: number) {
+  return value <= Math.max(left, right) + 0.0001 && value + 0.0001 >= Math.min(left, right);
+}
+
+function segmentsIntersect(startA: Point, endA: Point, startB: Point, endB: Point) {
+  const d1 = getCrossProduct(startA, endA, startB);
+  const d2 = getCrossProduct(startA, endA, endB);
+  const d3 = getCrossProduct(startB, endB, startA);
+  const d4 = getCrossProduct(startB, endB, endA);
+
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    return true;
+  }
+
+  if (Math.abs(d1) <= 0.0001 && isValueWithinRange(startB.x, startA.x, endA.x) && isValueWithinRange(startB.y, startA.y, endA.y)) {
+    return true;
+  }
+
+  if (Math.abs(d2) <= 0.0001 && isValueWithinRange(endB.x, startA.x, endA.x) && isValueWithinRange(endB.y, startA.y, endA.y)) {
+    return true;
+  }
+
+  if (Math.abs(d3) <= 0.0001 && isValueWithinRange(startA.x, startB.x, endB.x) && isValueWithinRange(startA.y, startB.y, endB.y)) {
+    return true;
+  }
+
+  if (Math.abs(d4) <= 0.0001 && isValueWithinRange(endA.x, startB.x, endB.x) && isValueWithinRange(endA.y, startB.y, endB.y)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isSelfIntersectingRing(points: Point[]) {
+  const segmentCount = points.length;
+  if (segmentCount < 4) {
+    return false;
+  }
+
+  for (let leftIndex = 0; leftIndex < segmentCount; leftIndex += 1) {
+    const leftStart = points[leftIndex];
+    const leftEnd = points[(leftIndex + 1) % segmentCount];
+
+    for (let rightIndex = leftIndex + 1; rightIndex < segmentCount; rightIndex += 1) {
+      const areAdjacent = Math.abs(leftIndex - rightIndex) <= 1 || (leftIndex === 0 && rightIndex === segmentCount - 1);
+      if (areAdjacent) {
+        continue;
+      }
+
+      const rightStart = points[rightIndex];
+      const rightEnd = points[(rightIndex + 1) % segmentCount];
+      if (segmentsIntersect(leftStart, leftEnd, rightStart, rightEnd)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function encodePolygonRings(rings: PolygonRing[]) {
+  return rings.map((ring) => {
+    const [start, ...rest] = ring.points;
+    const commands: SVGCommand[] = [
+      { type: SVGPathData.MOVE_TO, relative: false, x: start.x, y: start.y },
+      ...rest.map((point) => ({ type: SVGPathData.LINE_TO, relative: false, x: point.x, y: point.y })),
+      { type: SVGPathData.CLOSE_PATH },
+    ];
+
+    return SVGPathData.encode(commands);
+  }).join(' ');
+}
+
+function repairPolygonalPath(pathData: string, fillRule: string | null) {
+  let commands: SVGCommand[];
+  try {
+    commands = new SVGPathData(pathData).toAbs().commands;
+  } catch {
+    return null;
+  }
+
+  const rings = getPolygonRings(commands);
+  if (!rings) {
+    return null;
+  }
+
+  const normalizedFillRule = fillRule?.trim().toLowerCase() ?? '';
+  let windingChanged = 0;
+  const nextRings = rings.map((ring) => ({
+    ...ring,
+    points: [...ring.points],
+  }));
+
+  if (normalizedFillRule !== 'evenodd') {
+    const parentIndexes = getRingParentIndexes(nextRings);
+    parentIndexes.forEach((parentIndex, ringIndex) => {
+      if (parentIndex < 0) {
+        return;
+      }
+
+      const parentSign = getOrientationSign(nextRings[parentIndex].signedArea);
+      const ringSign = getOrientationSign(nextRings[ringIndex].signedArea);
+      if (parentSign === 0 || ringSign === 0 || parentSign !== ringSign) {
+        return;
+      }
+
+      nextRings[ringIndex].points = reverseRingPoints(nextRings[ringIndex].points);
+      nextRings[ringIndex].signedArea = getSignedPolygonArea(nextRings[ringIndex].points);
+      windingChanged += 1;
+    });
+  }
+
+  const hasSelfIntersection = nextRings.some((ring) => isSelfIntersectingRing(ring.points));
+  const nextFillRule = hasSelfIntersection && normalizedFillRule !== 'evenodd' ? 'evenodd' : fillRule;
+
+  if (windingChanged === 0 && nextFillRule === fillRule) {
+    return null;
+  }
+
+  return {
+    pathData: encodePolygonRings(nextRings),
+    fillRule: nextFillRule,
+  };
+}
+
+function analyzePathCleanup(root: SVGSVGElement) {
+  const actions = new Map<Element, PathCleanupAction>();
+  const seenPaths = new Set<string>();
+  let closeablePathCount = 0;
+  let duplicatePathCount = 0;
+  let tinyPathCount = 0;
+  const states: PathCleanupState[] = [];
+
+  Array.from(root.querySelectorAll('path')).forEach((element) => {
+    const pathData = element.getAttribute('d')?.trim();
+    if (!pathData) {
+      actions.set(element, { remove: true });
+      tinyPathCount += 1;
+      return;
+    }
+
+    let absolutePath: SVGPathData;
+    try {
+      absolutePath = new SVGPathData(pathData).toAbs();
+    } catch {
+      return;
+    }
+
+    const commands = absolutePath.commands;
+    const hasDrawingCommands = commands.some((command) => command.type !== SVGPathData.MOVE_TO && command.type !== SVGPathData.CLOSE_PATH);
+    if (!hasDrawingCommands) {
+      actions.set(element, { remove: true });
+      tinyPathCount += 1;
+      return;
+    }
+
+    const bounds = absolutePath.getBounds();
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    if ((!Number.isFinite(width) || !Number.isFinite(height)) || (width <= 0.05 && height <= 0.05)) {
+      actions.set(element, { remove: true });
+      tinyPathCount += 1;
+      return;
+    }
+
+    const closedPath = closeNearClosedSubpaths(commands);
+    const signature = getPathCleanupSignature(element, closedPath.commands);
+
+    if (seenPaths.has(signature)) {
+      actions.set(element, { remove: true });
+      duplicatePathCount += 1;
+      return;
+    }
+
+    seenPaths.add(signature);
+    const action: PathCleanupAction = {};
+    if (closedPath.changed > 0) {
+      action.pathData = SVGPathData.encode(closedPath.commands);
+      actions.set(element, action);
+      closeablePathCount += 1;
+    }
+
+    states.push({
+      element,
+      attributeSignature: getPathCleanupAttributeSignature(element),
+      pathData: action.pathData ?? SVGPathData.encode(closedPath.commands),
+      commands: closedPath.commands,
+      joinCandidate: getOpenPathJoinCandidate(closedPath.commands),
+      action,
+    });
+  });
+
+  const stateByElement = new Map(states.map((state) => [state.element, state]));
+
+  [root, ...Array.from(root.querySelectorAll('*'))].forEach((parent) => {
+    const children = Array.from(parent.children);
+    for (let index = 0; index < children.length - 1; index += 1) {
+      const currentState = stateByElement.get(children[index]);
+      const nextState = stateByElement.get(children[index + 1]);
+      if (!currentState || !nextState || !currentState.joinCandidate || !nextState.joinCandidate || currentState.action.remove || nextState.action.remove) {
+        continue;
+      }
+
+      if (currentState.attributeSignature !== nextState.attributeSignature) {
+        continue;
+      }
+
+      const joinedCommands = joinPathCommands(currentState.commands, nextState.commands);
+      if (!joinedCommands) {
+        continue;
+      }
+
+      currentState.commands = joinedCommands;
+      currentState.pathData = SVGPathData.encode(joinedCommands);
+      currentState.joinCandidate = getOpenPathJoinCandidate(joinedCommands);
+      currentState.action.pathData = currentState.pathData;
+      nextState.action.remove = true;
+      actions.set(currentState.element, currentState.action);
+      actions.set(nextState.element, nextState.action);
+    }
+  });
+
+  states.forEach((state) => {
+    if (state.action.remove) {
+      return;
+    }
+
+    const repaired = repairPolygonalPath(state.pathData, state.element.getAttribute('fill-rule'));
+    if (!repaired) {
+      return;
+    }
+
+    if (repaired.pathData !== state.pathData) {
+      state.pathData = repaired.pathData;
+      state.commands = new SVGPathData(repaired.pathData).toAbs().commands;
+      state.joinCandidate = getOpenPathJoinCandidate(state.commands);
+      state.action.pathData = repaired.pathData;
+    }
+
+    if (repaired.fillRule !== state.element.getAttribute('fill-rule')) {
+      state.action.fillRule = repaired.fillRule;
+    }
+
+    actions.set(state.element, state.action);
+  });
+
+  const pathCleanupCount = Array.from(actions.values()).filter((action) => action.remove || action.pathData || action.fillRule !== undefined).length;
+
+  return {
+    actions,
+    closeablePathCount,
+    duplicatePathCount,
+    tinyPathCount,
+    pathCleanupCount,
+  };
+}
+
+function classifyReferenceValue(value: string) {
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized.startsWith('#')) {
+    return 'local' as const;
+  }
+
+  if (normalized.startsWith('data:')) {
+    return 'embedded' as const;
+  }
+
+  if (normalized.startsWith('javascript:')) {
+    return 'unsafe' as const;
+  }
+
+  return 'external' as const;
+}
+
+function getReferenceAttributeValue(element: Element) {
+  return element.getAttribute('href') ?? element.getAttribute('xlink:href');
+}
+
+function removeReferenceAttributes(element: Element) {
+  element.removeAttribute('href');
+  element.removeAttribute('xlink:href');
+}
+
+function resolveReferenceCleanupReason(
+  element: Element,
+  root: SVGSVGElement,
+  options: ReferenceCleanupOptions = {},
+  memo = new Map<Element, ReferenceCleanupAction['reason'] | null>(),
+  visiting = new Set<Element>(),
+): ReferenceCleanupAction['reason'] | null {
+  const cached = memo.get(element);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const referenceValue = getReferenceAttributeValue(element)?.trim();
+  if (!referenceValue) {
+    memo.set(element, null);
+    return null;
+  }
+
+  const tagName = getLocalTagName(element).toLowerCase();
+  const referenceType = classifyReferenceValue(referenceValue);
+
+  if (referenceType === 'embedded') {
+    memo.set(element, null);
+    return null;
+  }
+
+  if (referenceType === 'unsafe') {
+    memo.set(element, 'unsafe');
+    return 'unsafe';
+  }
+
+  if (referenceType === 'external') {
+    const reason = tagName === 'a' || options.preserveExternalDependencies ? null : 'external-dependency';
+    memo.set(element, reason);
+    return reason;
+  }
+
+  const referenceId = referenceValue.slice(1);
+  const referenceTarget = referenceId ? root.ownerDocument.getElementById(referenceId) : null;
+  if (!referenceTarget) {
+    memo.set(element, 'broken-local');
+    return 'broken-local';
+  }
+
+  if (visiting.has(referenceTarget) || referenceTarget === element) {
+    memo.set(element, 'broken-local');
+    return 'broken-local';
+  }
+
+  const targetReferenceValue = getReferenceAttributeValue(referenceTarget)?.trim();
+  if (!targetReferenceValue) {
+    memo.set(element, null);
+    return null;
+  }
+
+  visiting.add(element);
+  const chainedReason = resolveReferenceCleanupReason(referenceTarget, root, options, memo, visiting);
+  visiting.delete(element);
+  memo.set(element, chainedReason);
+  return chainedReason;
+}
+
+function analyzeReferenceCleanup(root: SVGSVGElement, options: ReferenceCleanupOptions = {}) {
+  const actions = new Map<Element, ReferenceCleanupAction>();
+  const memo = new Map<Element, ReferenceCleanupAction['reason'] | null>();
+
+  [root, ...Array.from(root.querySelectorAll('*'))].forEach((element) => {
+    const referenceValue = getReferenceAttributeValue(element)?.trim();
+    if (!referenceValue) {
+      return;
+    }
+
+    const tagName = getLocalTagName(element).toLowerCase();
+    const reason = resolveReferenceCleanupReason(element, root, options, memo);
+    if (!reason) {
+      return;
+    }
+
+    actions.set(element, {
+      type: removableReferenceElementTags.has(tagName) ? 'remove-element' : 'remove-attributes',
+      element,
+      reason,
+    });
+  });
+
+  return {
+    actions,
+    referenceCleanupCount: actions.size,
+  };
+}
+
 function getTextConversionContextWithOptions(root: SVGSVGElement, options: TextConversionOptions): TextConversionContext {
   const uploadedFontsById = new Map<string, UploadedFontAsset>();
   const uploadedFontsByFamily = new Map<string, UploadedFontAsset>();
@@ -897,6 +1920,9 @@ export function detectNormalizationOpportunities(source: string, options: TextCo
   const useElements = Array.from(root.querySelectorAll('use'));
   const expandableUseCount = useElements.filter((element) => isExpandableUseReference(getUseReference(element, root), textOpportunities.context)).length;
   const styleOpportunities = getStyleRuleOpportunities(root);
+  const strokeOpportunities = getStrokeOutlineOpportunities(root);
+  const pathCleanup = analyzePathCleanup(root);
+  const referenceCleanup = analyzeReferenceCleanup(root);
   return {
     primitiveShapeCount: root.querySelectorAll('rect, circle, ellipse, line, polyline, polygon').length,
     convertibleTextCount: textOpportunities.convertibleTextCount,
@@ -910,6 +1936,10 @@ export function detectNormalizationOpportunities(source: string, options: TextCo
     blockedUseCount: useElements.length - expandableUseCount,
     inlineableStyleRuleCount: styleOpportunities.inlineableStyleRuleCount,
     blockedStyleRuleCount: styleOpportunities.blockedStyleRuleCount,
+    strokeOutlineCount: strokeOpportunities.strokeOutlineCount,
+    blockedStrokeOutlineCount: strokeOpportunities.blockedStrokeOutlineCount,
+    pathCleanupCount: pathCleanup.pathCleanupCount,
+    referenceCleanupCount: referenceCleanup.referenceCleanupCount,
   };
 }
 
@@ -1041,6 +2071,114 @@ export function normalizeShapesToPaths(source: string): NormalizationResult {
   };
 }
 
+export function convertStrokesToOutlines(source: string): NormalizationResult {
+  const root = parseSvgRoot(source);
+  let changed = 0;
+  let skipped = 0;
+
+  [root, ...Array.from(root.querySelectorAll('*'))].forEach((element) => {
+    if (!isStrokeOnlyElement(element)) {
+      return;
+    }
+
+    const candidate = getStrokeOutlineCandidate(element);
+    if (!candidate) {
+      skipped += 1;
+      return;
+    }
+
+    const pathElement = document.createElementNS(SVG_NS, 'path');
+    copyAttributes(candidate.element, pathElement, strokeOutlineAttributeOmissions);
+    pathElement.setAttribute('d', candidate.pathData);
+    pathElement.setAttribute('fill', candidate.stroke);
+
+    if (candidate.strokeOpacity && candidate.strokeOpacity.trim() !== '' && candidate.strokeOpacity.trim() !== '1') {
+      pathElement.setAttribute('fill-opacity', candidate.strokeOpacity);
+    }
+
+    if (candidate.fillRule) {
+      pathElement.setAttribute('fill-rule', candidate.fillRule);
+    }
+
+    candidate.element.replaceWith(pathElement);
+    changed += 1;
+  });
+
+  return {
+    source: serializeSvg(root),
+    changed,
+    skipped,
+  };
+}
+
+export function cleanupPaths(source: string): NormalizationResult {
+  const root = parseSvgRoot(source);
+  const pathCleanup = analyzePathCleanup(root);
+  let changed = 0;
+
+  Array.from(root.querySelectorAll('path')).forEach((element) => {
+    const action = pathCleanup.actions.get(element);
+    if (!action) {
+      return;
+    }
+
+    if (action.remove) {
+      element.remove();
+      changed += 1;
+      return;
+    }
+
+    if (action.pathData) {
+      element.setAttribute('d', action.pathData);
+      changed += 1;
+    }
+
+    if (action.fillRule !== undefined && action.fillRule !== element.getAttribute('fill-rule')) {
+      if (action.fillRule) {
+        element.setAttribute('fill-rule', action.fillRule);
+      } else {
+        element.removeAttribute('fill-rule');
+      }
+
+      changed += 1;
+    }
+  });
+
+  return {
+    source: serializeSvg(root),
+    changed,
+    skipped: 0,
+  };
+}
+
+export function cleanupReferences(source: string, options: ReferenceCleanupOptions = {}): NormalizationResult {
+  const root = parseSvgRoot(source);
+  const referenceCleanup = analyzeReferenceCleanup(root, options);
+  let changed = 0;
+
+  [root, ...Array.from(root.querySelectorAll('*'))].forEach((element) => {
+    const action = referenceCleanup.actions.get(element);
+    if (!action) {
+      return;
+    }
+
+    if (action.type === 'remove-element') {
+      element.remove();
+      changed += 1;
+      return;
+    }
+
+    removeReferenceAttributes(element);
+    changed += 1;
+  });
+
+  return {
+    source: serializeSvg(root),
+    changed,
+    skipped: 0,
+  };
+}
+
 export function bakeDirectTransforms(source: string): NormalizationResult {
   const root = parseSvgRoot(source);
   let changed = 0;
@@ -1152,37 +2290,119 @@ export function expandUseElements(source: string): NormalizationResult {
   };
 }
 
+export function cleanupAuthoringMetadata(source: string): NormalizationResult {
+  const root = parseSvgRoot(source);
+  let changed = 0;
+
+  Array.from(root.querySelectorAll('*')).forEach((element) => {
+    const prefix = element.tagName.includes(':') ? element.tagName.split(':')[0] : '';
+    const localName = getLocalTagName(element).toLowerCase();
+    if (localName === 'metadata' || removableAuthoringElementPrefixes.has(prefix)) {
+      element.remove();
+      changed += 1;
+    }
+  });
+
+  [root, ...Array.from(root.querySelectorAll('*'))].forEach((element) => {
+    Array.from(element.attributes).forEach((attribute) => {
+      const prefix = attribute.name.includes(':') ? attribute.name.split(':')[0] : '';
+      if (removableAuthoringPrefixes.has(prefix)) {
+        element.removeAttribute(attribute.name);
+        changed += 1;
+      }
+    });
+  });
+
+  removableAuthoringPrefixes.forEach((prefix) => {
+    const namespaceAttribute = `xmlns:${prefix}`;
+    if (root.hasAttribute(namespaceAttribute)) {
+      root.removeAttribute(namespaceAttribute);
+      changed += 1;
+    }
+  });
+
+  return {
+    source: serializeSvg(root),
+    changed,
+    skipped: 0,
+  };
+}
+
 export function applySafeRepairs(source: string, options: TextConversionOptions = {}): SafeRepairResult {
   const styleResult = inlineSimpleStyles(source);
   const textResult = convertTextToPaths(styleResult.source, options);
-  const shapeResult = normalizeShapesToPaths(textResult.source);
+  const strokeResult = convertStrokesToOutlines(textResult.source);
+  const shapeResult = normalizeShapesToPaths(strokeResult.source);
   const directTransformResult = bakeDirectTransforms(shapeResult.source);
   const containerTransformResult = bakeContainerTransforms(directTransformResult.source);
   const useExpansionResult = expandUseElements(containerTransformResult.source);
+  const pathCleanupResult = cleanupPaths(useExpansionResult.source);
 
   return {
-    source: useExpansionResult.source,
+    source: pathCleanupResult.source,
     changed:
       styleResult.changed +
       textResult.changed +
       shapeResult.changed +
+      strokeResult.changed +
       directTransformResult.changed +
       containerTransformResult.changed +
-      useExpansionResult.changed,
-    skipped: styleResult.skipped + textResult.skipped + containerTransformResult.skipped + useExpansionResult.skipped,
+      useExpansionResult.changed +
+      pathCleanupResult.changed,
+    skipped:
+      styleResult.skipped +
+      textResult.skipped +
+      strokeResult.skipped +
+      containerTransformResult.skipped +
+      useExpansionResult.skipped,
     details: {
       styleRules: styleResult.changed,
       textPaths: textResult.changed,
       shapes: shapeResult.changed,
+      strokeOutlines: strokeResult.changed,
+      pathCleanups: pathCleanupResult.changed,
       directTransforms: directTransformResult.changed,
       containerTransforms: containerTransformResult.changed,
       useExpansions: useExpansionResult.changed,
       blockedStyleRules: styleResult.skipped,
       blockedTexts: textResult.skipped,
+      blockedStrokeOutlines: strokeResult.skipped,
       blockedContainers: containerTransformResult.skipped,
       blockedUses: useExpansionResult.skipped,
     },
   };
+}
+
+export function getStrokeOutlineMessage(outlineableCount: number, blockedCount: number) {
+  if (outlineableCount === 0 && blockedCount === 0) {
+    return 'No stroke-only geometry detected.';
+  }
+
+  if (blockedCount === 0) {
+    return `${outlineableCount} stroke-driven node${outlineableCount === 1 ? '' : 's'} can be converted to filled outlines.`;
+  }
+
+  if (outlineableCount === 0) {
+    return `${blockedCount} stroke-driven node${blockedCount === 1 ? '' : 's'} remain blocked by unsupported stroke styling or geometry.`;
+  }
+
+  return `${outlineableCount} stroke-driven node${outlineableCount === 1 ? '' : 's'} can be converted to filled outlines. ${blockedCount} remain blocked by unsupported stroke styling or geometry.`;
+}
+
+export function getPathCleanupMessage(pathCleanupCount: number) {
+  if (pathCleanupCount === 0) {
+    return 'No path cleanup opportunities detected.';
+  }
+
+  return `${pathCleanupCount} path cleanup${pathCleanupCount === 1 ? '' : 's'} can close near-open paths, join fragments, repair polygon winding, stabilize self-intersections, or remove duplicate and tiny geometry.`;
+}
+
+export function getReferenceCleanupMessage(referenceCleanupCount: number) {
+  if (referenceCleanupCount === 0) {
+    return 'No broken, chained, or external dependency references detected for cleanup.';
+  }
+
+  return `${referenceCleanupCount} broken, chained, or external dependency reference${referenceCleanupCount === 1 ? '' : 's'} can be cleaned. External <a> links are preserved.`;
 }
 
 export function getTextConversionMessage(convertibleCount: number, blockedCount: number) {

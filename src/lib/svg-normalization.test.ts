@@ -1,14 +1,22 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as opentype from 'opentype.js';
 import {
   applySafeRepairs,
   bakeContainerTransforms,
   bakeDirectTransforms,
+  cleanupPaths,
+  cleanupReferences,
+  cleanupAuthoringMetadata,
+  convertStrokesToOutlines,
   convertTextToPaths,
   detectNormalizationOpportunities,
   expandUseElements,
   getContainerTransformMessage,
+  getPathCleanupMessage,
+  getReferenceCleanupMessage,
   getStyleInliningMessage,
+  getStrokeOutlineMessage,
   getTextConversionMessage,
   getUseExpansionMessage,
   inlineSimpleStyles,
@@ -146,6 +154,51 @@ describe('detectNormalizationOpportunities', () => {
     expect(opportunities.blockedTextCount).toBe(1);
   });
 
+  it('counts supported and blocked stroke outline opportunities', () => {
+    const opportunities = detectNormalizationOpportunities(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <line x1="0" y1="0" x2="10" y2="0" stroke="#000" stroke-width="4" fill="none" />
+        <path d="M0 10H10" stroke="#000" stroke-width="4" fill="none" />
+      </svg>`,
+    );
+
+    expect(opportunities.strokeOutlineCount).toBe(1);
+    expect(opportunities.blockedStrokeOutlineCount).toBe(1);
+  });
+
+  it('counts path cleanup opportunities for near-open, duplicate, tiny, fragment-join, and winding/self-intersection repairs', () => {
+    const opportunities = detectNormalizationOpportunities(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <path d="M0 0L10 0L0 0.1" fill="none" stroke="#000" />
+        <path d="M20 20L30 20" stroke="#000" />
+        <path d="M20 20L30 20" stroke="#000" />
+        <path d="M40 40" />
+        <path d="M50 0L60 0" stroke="#000" fill="none" />
+        <path d="M60 0L70 0" stroke="#000" fill="none" />
+        <path d="M0 50L20 50L20 70L0 70Z M5 55L15 55L15 65L5 65Z" fill="#000" />
+        <path d="M30 50L40 60L30 60L40 50Z" fill="#000" />
+      </svg>`,
+    );
+
+    expect(opportunities.pathCleanupCount).toBe(7);
+  });
+
+  it('counts broken local refs, invalid chains, and non-link external dependencies for cleanup', () => {
+    const opportunities = detectNormalizationOpportunities(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="g" xlink:href="#missing" xmlns:xlink="http://www.w3.org/1999/xlink" />
+          <linearGradient id="g-chain" xlink:href="#g" xmlns:xlink="http://www.w3.org/1999/xlink" />
+        </defs>
+        <use href="#g-chain" />
+        <image href="https://example.com/asset.png" width="10" height="10" />
+        <a href="https://example.com/page"><rect width="10" height="10" /></a>
+      </svg>`,
+    );
+
+    expect(opportunities.referenceCleanupCount).toBe(4);
+  });
+
   it('treats mapped uploaded fonts as convertible text', () => {
     const uploadedFont = createUploadedFontAsset();
     const opportunities = detectNormalizationOpportunities(
@@ -209,6 +262,24 @@ describe('getStyleInliningMessage', () => {
 describe('getTextConversionMessage', () => {
   it('returns a useful message for text conversion status', () => {
     expect(getTextConversionMessage(1, 2)).toContain('1 text element can be converted to paths. 2 remain blocked');
+  });
+});
+
+describe('getStrokeOutlineMessage', () => {
+  it('returns a useful message for stroke outline status', () => {
+    expect(getStrokeOutlineMessage(1, 2)).toContain('1 stroke-driven node can be converted to filled outlines. 2 remain blocked');
+  });
+});
+
+describe('getPathCleanupMessage', () => {
+  it('returns a useful message for path cleanup status', () => {
+    expect(getPathCleanupMessage(2)).toContain('2 path cleanups can close near-open paths, join fragments, repair polygon winding, stabilize self-intersections, or remove duplicate and tiny geometry.');
+  });
+});
+
+describe('getReferenceCleanupMessage', () => {
+  it('returns a useful message for reference cleanup status', () => {
+    expect(getReferenceCleanupMessage(2)).toContain('2 broken, chained, or external dependency references can be cleaned.');
   });
 });
 
@@ -292,6 +363,156 @@ describe('inlineSimpleStyles', () => {
     expect(result.skipped).toBe(1);
     expect(result.source).toContain('style="fill: red"');
     expect(result.source).toContain('g .nested');
+  });
+});
+
+describe('convertStrokesToOutlines', () => {
+  it('converts supported stroke-only geometry into filled paths', () => {
+    const result = convertStrokesToOutlines(
+      `<svg xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="0" x2="10" y2="0" stroke="red" stroke-width="4" fill="none" /></svg>`,
+    );
+
+    expect(result.changed).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.source).toContain('<path');
+    expect(result.source).toContain('fill="red"');
+    expect(result.source).not.toContain('stroke=');
+    expect(result.source).not.toContain('<line');
+  });
+
+  it('leaves unsupported stroke-only geometry blocked', () => {
+    const result = convertStrokesToOutlines(
+      `<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0H10" stroke="red" stroke-width="4" fill="none" /></svg>`,
+    );
+
+    expect(result.changed).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.source).toContain('<path d="M0 0H10"');
+    expect(result.source).toContain('stroke="red"');
+  });
+});
+
+describe('cleanupPaths', () => {
+  it('closes near-open paths and removes duplicate and tiny geometry', () => {
+    const result = cleanupPaths(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <path d="M0 0L10 0L0 0.1" fill="none" stroke="#000" />
+        <path d="M20 20L30 20" stroke="#000" />
+        <path d="M20 20L30 20" stroke="#000" />
+        <path d="M40 40" />
+      </svg>`,
+    );
+
+    expect(result.changed).toBe(3);
+    expect(result.source).toMatch(/0\.1[zZ]/);
+    expect((result.source.match(/<path/g) ?? [])).toHaveLength(2);
+  });
+
+  it('joins adjacent compatible open path fragments into one path', () => {
+    const result = cleanupPaths(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <path d="M0 0L10 0" stroke="#000" fill="none" />
+        <path d="M10 0L20 0" stroke="#000" fill="none" />
+      </svg>`,
+    );
+
+    expect(result.changed).toBe(2);
+    expect((result.source.match(/<path/g) ?? [])).toHaveLength(1);
+    expect(result.source).toContain('d="M0 0L10 0L20 0"');
+  });
+
+  it('repairs simple nested polygon winding for nonzero fills', () => {
+    const result = cleanupPaths(
+      '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L20 0L20 20L0 20Z M5 5L15 5L15 15L5 15Z" fill="#000" /></svg>',
+    );
+
+    expect(result.changed).toBe(1);
+    expect(result.source).toMatch(/d="M0 0L20 0L20 20L0 20[zZ] M5 5L5 15L15 15L15 5[zZ]"/);
+  });
+
+  it('stabilizes self-intersecting polygon paths with evenodd fill-rule', () => {
+    const result = cleanupPaths(
+      '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L10 10L0 10L10 0Z" fill="#000" /></svg>',
+    );
+
+    expect(result.changed).toBe(1);
+    expect(result.source).toContain('fill-rule="evenodd"');
+  });
+});
+
+describe('cleanupReferences', () => {
+  it('removes broken local refs, invalid chains, and non-link external dependency refs while preserving links', () => {
+    const result = cleanupReferences(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="g" xlink:href="#missing" xmlns:xlink="http://www.w3.org/1999/xlink" />
+          <linearGradient id="g-chain" xlink:href="#g" xmlns:xlink="http://www.w3.org/1999/xlink" />
+        </defs>
+        <use href="#g-chain" />
+        <image href="https://example.com/asset.png" width="10" height="10" />
+        <a href="https://example.com/page"><rect width="10" height="10" /></a>
+      </svg>`,
+    );
+
+    expect(result.changed).toBe(4);
+    expect(result.source).not.toContain('<use');
+    expect(result.source).not.toContain('<image');
+    expect(result.source).not.toContain('xlink:href="#missing"');
+    expect(result.source).not.toContain('xlink:href="#g"');
+    expect(result.source).toContain('<a href="https://example.com/page">');
+  });
+
+  it('cleans cyclic local href chains', () => {
+    const result = cleanupReferences(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="a" xlink:href="#b" xmlns:xlink="http://www.w3.org/1999/xlink" />
+          <linearGradient id="b" xlink:href="#a" xmlns:xlink="http://www.w3.org/1999/xlink" />
+        </defs>
+        <use href="#a" />
+      </svg>`,
+    );
+
+    expect(result.changed).toBe(3);
+    expect(result.source).not.toContain('<use');
+    expect(result.source).not.toContain('xlink:href="#a"');
+    expect(result.source).not.toContain('xlink:href="#b"');
+  });
+
+  it('preserves external runtime dependencies when requested', () => {
+    const result = cleanupReferences(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <video href="movie.mp4" width="10" height="10" />
+        <image href="https://example.com/asset.png" width="10" height="10" />
+        <use href="#missing" />
+      </svg>`,
+      { preserveExternalDependencies: true },
+    );
+
+    expect(result.changed).toBe(1);
+    expect(result.source).toContain('movie.mp4');
+    expect(result.source).toContain('https://example.com/asset.png');
+    expect(result.source).not.toContain('<use');
+  });
+});
+
+describe('cleanupAuthoringMetadata', () => {
+  it('removes metadata elements and editor namespace noise', () => {
+    const result = cleanupAuthoringMetadata(
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd">
+        <metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" /></metadata>
+        <sodipodi:namedview inkscape:current-layer="layer1" />
+        <rect inkscape:label="Layer 1" width="10" height="10" />
+      </svg>`,
+    );
+
+    expect(result.changed).toBeGreaterThan(0);
+    expect(result.source).not.toContain('<metadata');
+    expect(result.source).not.toContain('sodipodi:namedview');
+    expect(result.source).not.toContain('inkscape:label');
+    expect(result.source).not.toContain('xmlns:inkscape');
+    expect(result.source).not.toContain('xmlns:sodipodi');
+    expect(result.source).toContain('<rect width="10" height="10"/>');
   });
 });
 
@@ -383,5 +604,77 @@ describe('applySafeRepairs', () => {
     expect(result.details.blockedUses).toBe(1);
     expect(result.source).toContain('<text');
     expect(result.source).toContain('<use href="#label"/>');
+  });
+
+  it('normalizes the AJ digital camera fixture without losing gradient references', () => {
+    const fixture = readFileSync('tests/SVG/AJ_Digital_Camera.svg', 'utf8');
+    const before = detectNormalizationOpportunities(fixture);
+    const result = applySafeRepairs(fixture);
+    const after = detectNormalizationOpportunities(result.source);
+
+    expect(before.primitiveShapeCount).toBeGreaterThan(10);
+    expect(before.directTransformCount + before.bakeableContainerTransformCount).toBeGreaterThan(0);
+    expect(result.changed).toBeGreaterThan(10);
+    expect(result.skipped).toBe(result.details.blockedStrokeOutlines);
+    expect(result.details.shapes).toBeGreaterThan(10);
+    expect(result.details.blockedStrokeOutlines).toBeGreaterThanOrEqual(0);
+    expect(result.source).toContain('url(#');
+    expect(after.primitiveShapeCount).toBe(0);
+    expect(after.directTransformCount).toBe(0);
+    expect(after.bakeableContainerTransformCount).toBe(0);
+  });
+
+  it('repairs geometry in the video1 fixture without stripping media or animation nodes', () => {
+    const fixture = readFileSync('tests/SVG/video1.svg', 'utf8');
+    const before = detectNormalizationOpportunities(fixture);
+    const result = applySafeRepairs(fixture);
+    const after = detectNormalizationOpportunities(result.source);
+
+    expect(before.primitiveShapeCount).toBeGreaterThanOrEqual(8);
+    expect(before.blockedTextCount).toBeGreaterThan(0);
+    expect(result.changed).toBeGreaterThan(0);
+    expect(result.skipped).toBeGreaterThan(0);
+    expect(result.details.shapes + result.details.strokeOutlines).toBeGreaterThanOrEqual(8);
+    expect(result.details.blockedTexts).toBeGreaterThan(0);
+    expect(result.source).toContain('<video');
+    expect(result.source).toContain('<animate');
+    expect(result.source).toContain('<animateTransform');
+    expect(after.primitiveShapeCount).toBe(0);
+  });
+
+  it('outlines supported stroke-driven geometry during the safe repair pass', () => {
+    const result = applySafeRepairs(
+      `<svg xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="0" x2="10" y2="0" stroke="#000" stroke-width="4" fill="none" /></svg>`,
+    );
+
+    expect(result.changed).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.details.strokeOutlines).toBe(1);
+    expect(result.source).toContain('<path');
+    expect(result.source).not.toContain('stroke=');
+  });
+
+  it('cleans paths during the safe repair pass', () => {
+    const result = applySafeRepairs(
+      `<svg xmlns="http://www.w3.org/2000/svg">
+        <path d="M0 0L10 0L0 0.1" fill="none" stroke="#000" />
+        <path d="M20 20L30 20" stroke="#000" />
+        <path d="M20 20L30 20" stroke="#000" />
+        <path d="M40 40" />
+      </svg>`,
+    );
+
+    expect(result.details.pathCleanups).toBe(3);
+    expect((result.source.match(/<path/g) ?? [])).toHaveLength(2);
+  });
+
+  it('can be combined with authoring cleanup for inkscape-authored files', () => {
+    const fixture = readFileSync('tests/SVG/AJ_Digital_Camera.svg', 'utf8');
+    const cleanupResult = cleanupAuthoringMetadata(fixture);
+
+    expect(cleanupResult.changed).toBeGreaterThan(0);
+    expect(cleanupResult.source).not.toContain('inkscape:');
+    expect(cleanupResult.source).not.toContain('sodipodi:');
+    expect(cleanupResult.source).not.toContain('<metadata');
   });
 });

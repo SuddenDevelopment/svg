@@ -1,20 +1,36 @@
 import { useDeferredValue, useEffect, useId, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent } from 'react';
+import type { ChangeEvent, DragEvent, PointerEvent, WheelEvent } from 'react';
 import { sampleSvg } from './lib/sample-svg';
-import { buildAnalysis } from './lib/svg-analysis';
+import { buildAnalysis, getChangedPreviewNodePaths } from './lib/svg-analysis';
 import type { Analysis } from './lib/svg-analysis';
-import { buildExportFileName, copySvgSourceToClipboard, downloadSvgSource, getExportVariantLabel } from './lib/svg-export';
+import {
+  buildExportFileName,
+  buildPngExportFileName,
+  copySvgSourceToClipboard,
+  createPngSnapshot,
+  downloadBlob,
+  downloadSvgSource,
+  getExportVariantLabel,
+} from './lib/svg-export';
 import type { ExportVariant } from './lib/svg-export';
 import { parseUploadedFontFile } from './lib/svg-fonts';
 import type { FontMapping, TextConversionOptions, UploadedFontAsset } from './lib/svg-fonts';
+import { clearSvgSource, optimizeSvgSource, prettifySvgSource } from './lib/svg-source';
 import {
   applySafeRepairs,
   bakeContainerTransforms,
   bakeDirectTransforms,
+  cleanupPaths,
+  cleanupReferences,
+  cleanupAuthoringMetadata,
+  convertStrokesToOutlines,
   convertTextToPaths,
   expandUseElements,
   getContainerTransformMessage,
+  getPathCleanupMessage,
+  getReferenceCleanupMessage,
   getStyleInliningMessage,
+  getStrokeOutlineMessage,
   getTextConversionMessage,
   getUseExpansionMessage,
   inlineSimpleStyles,
@@ -27,10 +43,22 @@ type InspectorTab = 'overview' | 'selection' | 'readiness' | 'warnings';
 
 type ExportReport = {
   action: 'download' | 'copy';
+  format: 'svg' | 'png';
   variant: ExportVariant;
   fileName: string;
   applied: string[];
   remaining: string[];
+};
+
+type PreviewViewport = {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+type SourceSelection = {
+  start: number;
+  end: number;
 };
 
 type PrimaryNavId = WorkspaceSection | 'style' | 'animate' | 'interact';
@@ -42,14 +70,19 @@ const exportPresetCards: Array<{ id: ExportVariant; title: string; description: 
     description: 'Download the source exactly as it appears in the editor.',
   },
   {
+    id: 'runtime',
+    title: 'Browser/runtime',
+    description: 'Preserve media, animation, and links while cleaning broken chained references and authoring noise.',
+  },
+  {
     id: 'safe',
-    title: 'Normalized',
-    description: 'Apply the safe repair pipeline before export.',
+    title: 'Geometry-safe',
+    description: 'Apply the geometry-focused safe repair pipeline before export.',
   },
   {
     id: 'blender',
     title: 'Blender-friendly',
-    description: 'Use the normalized geometry-focused export with a Blender-specific preset label.',
+    description: 'Use the geometry-safe export with a Blender-specific preset label and report framing.',
   },
 ];
 
@@ -103,7 +136,7 @@ const primaryNavItems: Array<{
   },
 ];
 
-const featuredTags = ['path', 'text', 'image', 'use', 'defs', 'style', 'animate', 'animateTransform', 'set'];
+const featuredTags = ['path', 'text', 'image', 'video', 'use', 'defs', 'style', 'animate', 'animateTransform', 'set'];
 const inspectorTabsBySection: Record<WorkspaceSection, InspectorTab[]> = {
   file: ['overview', 'warnings'],
   inspect: ['overview', 'selection', 'warnings'],
@@ -125,6 +158,34 @@ const inspectorTabLabels: Record<InspectorTab, string> = {
   warnings: 'Warnings',
 };
 
+const DEFAULT_PREVIEW_VIEWPORT: PreviewViewport = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+};
+
+const PREVIEW_MIN_SCALE = 0.5;
+const PREVIEW_MAX_SCALE = 4;
+const PREVIEW_SCALE_STEP = 0.25;
+const PREVIEW_PAN_STEP = 36;
+
+function clampPreviewScale(scale: number) {
+  return Math.min(PREVIEW_MAX_SCALE, Math.max(PREVIEW_MIN_SCALE, Number(scale.toFixed(2))));
+}
+
+function getSourceMetrics(source: string, selection: SourceSelection) {
+  const safeStart = Math.max(0, Math.min(selection.start, source.length));
+  const safeEnd = Math.max(safeStart, Math.min(selection.end, source.length));
+  const lineBreaks = source.slice(0, safeStart).split('\n');
+  return {
+    line: lineBreaks.length,
+    column: (lineBreaks.at(-1)?.length ?? 0) + 1,
+    selectionLength: safeEnd - safeStart,
+    lines: source.length === 0 ? 1 : source.split('\n').length,
+    characters: source.length,
+  };
+}
+
 function getReadinessLabel(status: Analysis['exportReadiness']['status']) {
   switch (status) {
     case 'ready':
@@ -136,6 +197,19 @@ function getReadinessLabel(status: Analysis['exportReadiness']['status']) {
   }
 }
 
+function getPngSnapshotLabel(variant: ExportVariant) {
+  switch (variant) {
+    case 'current':
+      return 'Current PNG snapshot';
+    case 'runtime':
+      return 'Browser/runtime PNG snapshot';
+    case 'safe':
+      return 'Geometry-safe PNG snapshot';
+    case 'blender':
+      return 'Blender-friendly PNG snapshot';
+  }
+}
+
 function App() {
   const inputId = useId();
   const fontInputId = useId();
@@ -143,15 +217,28 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fontInputRef = useRef<HTMLInputElement | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
+  const previewPointerRef = useRef<{
+    pointerId: number;
+    lastX: number;
+    lastY: number;
+    distance: number;
+  } | null>(null);
+  const suppressPreviewClickRef = useRef(false);
 
   const [source, setSource] = useState(sampleSvg);
   const [fileName, setFileName] = useState('sample.svg');
   const [previewTab, setPreviewTab] = useState<PreviewTab>('preview');
+  const [previewViewport, setPreviewViewport] = useState<PreviewViewport>(DEFAULT_PREVIEW_VIEWPORT);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hoveredPreviewNodeIds, setHoveredPreviewNodeIds] = useState<string[]>([]);
+  const [recentChangePaths, setRecentChangePaths] = useState<string[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPanningPreview, setIsPanningPreview] = useState(false);
   const [repairMessage, setRepairMessage] = useState<string | null>(null);
+  const [sourceActionMessage, setSourceActionMessage] = useState<string | null>(null);
+  const [sourceSelection, setSourceSelection] = useState<SourceSelection>({ start: 0, end: 0 });
   const [exportReport, setExportReport] = useState<ExportReport | null>(null);
   const [selectedExportPreset, setSelectedExportPreset] = useState<ExportVariant>('safe');
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFontAsset[]>([]);
@@ -206,16 +293,38 @@ function App() {
     container.querySelectorAll('[data-svg-node-selected="true"]').forEach((node) => {
       node.removeAttribute('data-svg-node-selected');
     });
+    container.querySelectorAll('[data-svg-node-hovered="true"]').forEach((node) => {
+      node.removeAttribute('data-svg-node-hovered');
+    });
+    container.querySelectorAll('[data-svg-node-changed="true"]').forEach((node) => {
+      node.removeAttribute('data-svg-node-changed');
+    });
 
-    if (!selectedNodeId) {
-      return;
-    }
+    hoveredPreviewNodeIds.forEach((nodeId) => {
+      const hoveredNode = container.querySelector(`[data-svg-node-id="${nodeId}"]`);
+      if (hoveredNode) {
+        hoveredNode.setAttribute('data-svg-node-hovered', 'true');
+      }
+    });
 
-    const selectedNode = container.querySelector(`[data-svg-node-id="${selectedNodeId}"]`);
-    if (selectedNode) {
-      selectedNode.setAttribute('data-svg-node-selected', 'true');
+    const changedNodes = analysis
+      ? Object.values(analysis.nodesById).filter((node) => recentChangePaths.includes(node.path)).slice(0, 8)
+      : [];
+
+    changedNodes.forEach((node) => {
+      const changedNode = container.querySelector(`[data-svg-node-id="${node.id}"]`);
+      if (changedNode) {
+        changedNode.setAttribute('data-svg-node-changed', 'true');
+      }
+    });
+
+    if (selectedNodeId) {
+      const selectedPreviewNode = container.querySelector(`[data-svg-node-id="${selectedNodeId}"]`);
+      if (selectedPreviewNode) {
+        selectedPreviewNode.setAttribute('data-svg-node-selected', 'true');
+      }
     }
-  }, [analysis?.previewMarkup, selectedNodeId]);
+  }, [analysis, hoveredPreviewNodeIds, recentChangePaths, selectedNodeId]);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -226,9 +335,7 @@ function App() {
     const reader = new FileReader();
     reader.onload = () => {
       const nextSource = typeof reader.result === 'string' ? reader.result : '';
-      setSource(nextSource);
-      setFileName(file.name);
-      setPreviewTab('preview');
+      loadSvgSource(nextSource, file.name);
     };
     reader.readAsText(file);
     event.target.value = '';
@@ -246,9 +353,7 @@ function App() {
     const reader = new FileReader();
     reader.onload = () => {
       const nextSource = typeof reader.result === 'string' ? reader.result : '';
-      setSource(nextSource);
-      setFileName(file.name);
-      setPreviewTab('preview');
+      loadSvgSource(nextSource, file.name);
     };
     reader.readAsText(file);
   }
@@ -258,9 +363,62 @@ function App() {
     .slice(0, 8);
   const availableInspectorTabs = inspectorTabsBySection[activeSection];
   const selectedNode = selectedNodeId && analysis ? analysis.nodesById[selectedNodeId] : null;
-  const normalizedExport = (() => {
+  const recentChangedNodes = analysis
+    ? Object.values(analysis.nodesById).filter((node) => recentChangePaths.includes(node.path)).slice(0, 8)
+    : [];
+  const hasRuntimeDependencies = (analysis?.runtimeFeatures.mediaElementCount ?? 0) > 0 || (analysis?.runtimeFeatures.animationElementCount ?? 0) > 0;
+  const authoringCleanupCount = analysis
+    ? analysis.authoringMetadata.metadataElementCount + analysis.authoringMetadata.namespacedNodeCount + analysis.authoringMetadata.namespacedAttributeCount
+    : 0;
+  const strokeOutlineCount = analysis?.opportunities.strokeOutlineCount ?? 0;
+  const blockedStrokeOutlineCount = analysis?.opportunities.blockedStrokeOutlineCount ?? 0;
+  const pathCleanupCount = analysis?.opportunities.pathCleanupCount ?? 0;
+  const referenceCleanupCount = analysis?.opportunities.referenceCleanupCount ?? 0;
+  const isPreviewInteractive = previewTab === 'preview' && !parseError && Boolean(analysis?.previewMarkup);
+  const sourceMetrics = getSourceMetrics(source, sourceSelection);
+  const exportPreflight = (() => {
     try {
-      return applySafeRepairs(source, textOptions);
+      const authoringCleanup = cleanupAuthoringMetadata(source);
+      const referenceCleanup = cleanupReferences(authoringCleanup.source, {
+        preserveExternalDependencies: true,
+      });
+      return {
+        source: referenceCleanup.source,
+        details: {
+          authoringCleanup: authoringCleanup.changed,
+          referenceCleanups: referenceCleanup.changed,
+        },
+      };
+    } catch {
+      return null;
+    }
+  })();
+  const runtimeExport = exportPreflight
+    ? {
+        source: exportPreflight.source,
+        changed: exportPreflight.details.authoringCleanup + exportPreflight.details.referenceCleanups,
+        details: exportPreflight.details,
+      }
+    : null;
+  const normalizedExport = (() => {
+    if (!exportPreflight) {
+      return null;
+    }
+
+    try {
+      const safeRepairResult = applySafeRepairs(exportPreflight.source, textOptions);
+      return {
+        source: safeRepairResult.source,
+        changed:
+          exportPreflight.details.authoringCleanup
+          + exportPreflight.details.referenceCleanups
+          + safeRepairResult.changed,
+        details: {
+          ...safeRepairResult.details,
+          authoringCleanup: exportPreflight.details.authoringCleanup,
+          referenceCleanups: exportPreflight.details.referenceCleanups,
+        },
+      };
     } catch {
       return null;
     }
@@ -269,6 +427,8 @@ function App() {
     ? analysis.opportunities.primitiveShapeCount
       + analysis.opportunities.convertibleTextCount
       + analysis.opportunities.inlineableStyleRuleCount
+      + analysis.opportunities.strokeOutlineCount
+      + analysis.opportunities.pathCleanupCount
       + analysis.opportunities.directTransformCount
       + analysis.opportunities.bakeableContainerTransformCount
       + analysis.opportunities.expandableUseCount
@@ -284,6 +444,100 @@ function App() {
       setInspectorTab(defaultInspectorTabBySection[activeSection]);
     }
   }, [activeSection, availableInspectorTabs, inspectorTab]);
+
+  function loadSvgSource(nextSource: string, nextFileName: string) {
+    setSource(nextSource);
+    setFileName(nextFileName);
+    setPreviewTab('preview');
+    setPreviewViewport(DEFAULT_PREVIEW_VIEWPORT);
+    setHoveredPreviewNodeIds([]);
+    setRecentChangePaths([]);
+    setSourceActionMessage(null);
+    setSourceSelection({ start: 0, end: 0 });
+  }
+
+  function resetPreviewViewport() {
+    setPreviewViewport(DEFAULT_PREVIEW_VIEWPORT);
+  }
+
+  function panPreview(offsetX: number, offsetY: number) {
+    setPreviewViewport((current) => ({
+      ...current,
+      offsetX: current.offsetX + offsetX,
+      offsetY: current.offsetY + offsetY,
+    }));
+  }
+
+  function zoomPreview(delta: number) {
+    setPreviewViewport((current) => ({
+      ...current,
+      scale: clampPreviewScale(current.scale + delta),
+    }));
+  }
+
+  function stopPreviewPan() {
+    previewPointerRef.current = null;
+    setIsPanningPreview(false);
+  }
+
+  function commitRepairSource(nextSource: string, message: string) {
+    setRecentChangePaths(getChangedPreviewNodePaths(source, nextSource));
+    setHoveredPreviewNodeIds([]);
+    setSource(nextSource);
+    setRepairMessage(message);
+    setSourceActionMessage(null);
+    setPreviewTab('preview');
+  }
+
+  function commitSourceAction(nextSource: string, message: string) {
+    setSource(nextSource);
+    setRecentChangePaths([]);
+    setHoveredPreviewNodeIds([]);
+    setSourceActionMessage(message);
+    setSourceSelection({ start: 0, end: 0 });
+  }
+
+  function updateSourceSelection(start: number, end = start) {
+    setSourceSelection({ start, end });
+  }
+
+  function setPreviewHover(nodeIds: string[]) {
+    setHoveredPreviewNodeIds(nodeIds);
+  }
+
+  function clearPreviewHover() {
+    setHoveredPreviewNodeIds([]);
+  }
+
+  function applySourcePrettify() {
+    try {
+      const nextSource = prettifySvgSource(source);
+      commitSourceAction(nextSource, nextSource === source ? 'SVG source is already prettified.' : 'Prettified SVG source.');
+    } catch (error) {
+      setSourceActionMessage(error instanceof Error ? error.message : 'Unable to prettify SVG source.');
+    }
+  }
+
+  function applySourceOptimize() {
+    try {
+      const nextSource = optimizeSvgSource(source);
+      commitSourceAction(nextSource, nextSource === source ? 'SVG source is already optimized.' : 'Optimized SVG source.');
+    } catch (error) {
+      setSourceActionMessage(error instanceof Error ? error.message : 'Unable to optimize SVG source.');
+    }
+  }
+
+  function applySourceClear() {
+    commitSourceAction(clearSvgSource(), 'Cleared the source editor to a blank SVG template.');
+  }
+
+  function getNodeListLabel(node: Analysis['nodesById'][string]) {
+    const idLabel = node.attributes.id ? `#${node.attributes.id}` : '';
+    const classLabel = node.attributes.class
+      ? `.${node.attributes.class.trim().split(/\s+/).filter(Boolean).join('.')}`
+      : '';
+    return `<${node.name}>${idLabel || classLabel ? ` ${idLabel}${classLabel}` : ''}`;
+  }
 
   function updateFontMapping(familyKey: string, fontId: string) {
     setFontMappings((current) => {
@@ -340,15 +594,16 @@ function App() {
   function applySafeRepairPass() {
     try {
       const result = applySafeRepairs(source, textOptions);
-      setSource(result.source);
 
       if (result.changed === 0 && result.skipped === 0) {
-        setRepairMessage('No safe repairs were available in this pass.');
+        commitRepairSource(result.source, 'No safe repairs were available in this pass.');
       } else {
         const appliedParts = [
           result.details.styleRules > 0 ? `${result.details.styleRules} style rules` : null,
           result.details.textPaths > 0 ? `${result.details.textPaths} text elements` : null,
           result.details.shapes > 0 ? `${result.details.shapes} shapes` : null,
+          result.details.strokeOutlines > 0 ? `${result.details.strokeOutlines} stroke outlines` : null,
+          result.details.pathCleanups > 0 ? `${result.details.pathCleanups} path cleanups` : null,
           result.details.directTransforms > 0 ? `${result.details.directTransforms} direct transforms` : null,
           result.details.containerTransforms > 0 ? `${result.details.containerTransforms} container transforms` : null,
           result.details.useExpansions > 0 ? `${result.details.useExpansions} use references` : null,
@@ -357,16 +612,15 @@ function App() {
         const blockedParts = [
           result.details.blockedStyleRules > 0 ? `${result.details.blockedStyleRules} blocked style rules` : null,
           result.details.blockedTexts > 0 ? `${result.details.blockedTexts} blocked text elements` : null,
+          result.details.blockedStrokeOutlines > 0 ? `${result.details.blockedStrokeOutlines} blocked stroke outlines` : null,
           result.details.blockedContainers > 0 ? `${result.details.blockedContainers} blocked containers` : null,
           result.details.blockedUses > 0 ? `${result.details.blockedUses} blocked use references` : null,
         ].filter(Boolean);
 
         const appliedSummary = appliedParts.length > 0 ? `Applied ${appliedParts.join(', ')}.` : 'Applied no safe repairs.';
         const blockedSummary = blockedParts.length > 0 ? ` Left ${blockedParts.join(' and ')} unchanged.` : '';
-        setRepairMessage(`${appliedSummary}${blockedSummary}`);
+        commitRepairSource(result.source, `${appliedSummary}${blockedSummary}`);
       }
-
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to apply safe repairs.');
     }
@@ -375,19 +629,16 @@ function App() {
   function applyStyleInlining() {
     try {
       const result = inlineSimpleStyles(source);
-      setSource(result.source);
 
       if (result.changed > 0 && result.skipped > 0) {
-        setRepairMessage(`Inlined ${result.changed} simple style rule${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked rule${result.skipped === 1 ? '' : 's'} unchanged.`);
+        commitRepairSource(result.source, `Inlined ${result.changed} simple style rule${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked rule${result.skipped === 1 ? '' : 's'} unchanged.`);
       } else if (result.changed > 0) {
-        setRepairMessage(`Inlined ${result.changed} simple style rule${result.changed === 1 ? '' : 's'} into element styles.`);
+        commitRepairSource(result.source, `Inlined ${result.changed} simple style rule${result.changed === 1 ? '' : 's'} into element styles.`);
       } else if (result.skipped > 0) {
-        setRepairMessage(`No style rules could be inlined safely. ${result.skipped} blocked rule${result.skipped === 1 ? '' : 's'} remain.`);
+        commitRepairSource(result.source, `No style rules could be inlined safely. ${result.skipped} blocked rule${result.skipped === 1 ? '' : 's'} remain.`);
       } else {
-        setRepairMessage('No inlineable style rules were found.');
+        commitRepairSource(result.source, 'No inlineable style rules were found.');
       }
-
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to inline style rules.');
     }
@@ -396,49 +647,90 @@ function App() {
   function applyShapeNormalization() {
     try {
       const result = normalizeShapesToPaths(source);
-      setSource(result.source);
-      setRepairMessage(
+      commitRepairSource(
+        result.source,
         result.changed > 0
           ? `Converted ${result.changed} shape primitive${result.changed === 1 ? '' : 's'} into path elements.`
           : 'No primitive shapes needed conversion.',
       );
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to normalize shapes.');
+    }
+  }
+
+  function applyStrokeOutline() {
+    try {
+      const result = convertStrokesToOutlines(source);
+
+      if (result.changed > 0 && result.skipped > 0) {
+        commitRepairSource(result.source, `Outlined ${result.changed} stroke-driven node${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked stroke outline${result.skipped === 1 ? '' : 's'} unchanged.`);
+      } else if (result.changed > 0) {
+        commitRepairSource(result.source, `Outlined ${result.changed} stroke-driven node${result.changed === 1 ? '' : 's'} into filled geometry.`);
+      } else if (result.skipped > 0) {
+        commitRepairSource(result.source, `No stroke-driven nodes could be outlined safely. ${result.skipped} blocked stroke outline${result.skipped === 1 ? '' : 's'} remain.`);
+      } else {
+        commitRepairSource(result.source, 'No stroke-driven nodes needed outline conversion.');
+      }
+    } catch (error) {
+      setRepairMessage(error instanceof Error ? error.message : 'Unable to convert strokes to outlines.');
     }
   }
 
   function applyTextConversion() {
     try {
       const result = convertTextToPaths(source, textOptions);
-      setSource(result.source);
 
       if (result.changed > 0 && result.skipped > 0) {
-        setRepairMessage(`Converted ${result.changed} text element${result.changed === 1 ? '' : 's'} to paths and left ${result.skipped} blocked text element${result.skipped === 1 ? '' : 's'} unchanged.`);
+        commitRepairSource(result.source, `Converted ${result.changed} text element${result.changed === 1 ? '' : 's'} to paths and left ${result.skipped} blocked text element${result.skipped === 1 ? '' : 's'} unchanged.`);
       } else if (result.changed > 0) {
-        setRepairMessage(`Converted ${result.changed} text element${result.changed === 1 ? '' : 's'} to paths.`);
+        commitRepairSource(result.source, `Converted ${result.changed} text element${result.changed === 1 ? '' : 's'} to paths.`);
       } else if (result.skipped > 0) {
-        setRepairMessage(`No text elements could be converted. ${result.skipped} blocked text element${result.skipped === 1 ? '' : 's'} remain.`);
+        commitRepairSource(result.source, `No text elements could be converted. ${result.skipped} blocked text element${result.skipped === 1 ? '' : 's'} remain.`);
       } else {
-        setRepairMessage('No text elements needed conversion.');
+        commitRepairSource(result.source, 'No text elements needed conversion.');
       }
-
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to convert text to paths.');
+    }
+  }
+
+  function applyPathCleanup() {
+    try {
+      const result = cleanupPaths(source);
+      commitRepairSource(
+        result.source,
+        result.changed > 0
+          ? `Cleaned ${result.changed} path${result.changed === 1 ? '' : 's'} by closing near-open paths, joining fragments, repairing polygon winding, stabilizing self-intersections, or removing duplicate and tiny geometry.`
+          : 'No path cleanup was needed.',
+      );
+    } catch (error) {
+      setRepairMessage(error instanceof Error ? error.message : 'Unable to clean paths.');
+    }
+  }
+
+  function applyReferenceCleanup() {
+    try {
+      const result = cleanupReferences(source);
+      commitRepairSource(
+        result.source,
+        result.changed > 0
+          ? `Cleaned ${result.changed} broken, chained, or external dependency reference${result.changed === 1 ? '' : 's'} from the SVG.`
+          : 'No broken, chained, or external dependency references needed cleanup.',
+      );
+    } catch (error) {
+      setRepairMessage(error instanceof Error ? error.message : 'Unable to clean references.');
     }
   }
 
   function applyTransformBake() {
     try {
       const result = bakeDirectTransforms(source);
-      setSource(result.source);
-      setRepairMessage(
+      commitRepairSource(
+        result.source,
         result.changed > 0
           ? `Baked ${result.changed} direct transform${result.changed === 1 ? '' : 's'} into geometry.`
           : 'No direct transforms could be baked in this pass.',
       );
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to bake transforms.');
     }
@@ -447,19 +739,16 @@ function App() {
   function applyContainerTransformBake() {
     try {
       const result = bakeContainerTransforms(source);
-      setSource(result.source);
 
       if (result.changed > 0 && result.skipped > 0) {
-        setRepairMessage(`Baked ${result.changed} container transform${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked container${result.skipped === 1 ? '' : 's'} unchanged.`);
+        commitRepairSource(result.source, `Baked ${result.changed} container transform${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked container${result.skipped === 1 ? '' : 's'} unchanged.`);
       } else if (result.changed > 0) {
-        setRepairMessage(`Baked ${result.changed} container transform${result.changed === 1 ? '' : 's'} into descendant geometry.`);
+        commitRepairSource(result.source, `Baked ${result.changed} container transform${result.changed === 1 ? '' : 's'} into descendant geometry.`);
       } else if (result.skipped > 0) {
-        setRepairMessage(`No container transforms could be baked safely. ${result.skipped} blocked container${result.skipped === 1 ? '' : 's'} remain.`);
+        commitRepairSource(result.source, `No container transforms could be baked safely. ${result.skipped} blocked container${result.skipped === 1 ? '' : 's'} remain.`);
       } else {
-        setRepairMessage('No transformed containers needed baking.');
+        commitRepairSource(result.source, 'No transformed containers needed baking.');
       }
-
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to bake container transforms.');
     }
@@ -468,135 +757,329 @@ function App() {
   function applyUseExpansion() {
     try {
       const result = expandUseElements(source);
-      setSource(result.source);
 
       if (result.changed > 0 && result.skipped > 0) {
-        setRepairMessage(`Expanded ${result.changed} <use> reference${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked reference${result.skipped === 1 ? '' : 's'} unchanged.`);
+        commitRepairSource(result.source, `Expanded ${result.changed} <use> reference${result.changed === 1 ? '' : 's'} and left ${result.skipped} blocked reference${result.skipped === 1 ? '' : 's'} unchanged.`);
       } else if (result.changed > 0) {
-        setRepairMessage(`Expanded ${result.changed} <use> reference${result.changed === 1 ? '' : 's'} into concrete geometry.`);
+        commitRepairSource(result.source, `Expanded ${result.changed} <use> reference${result.changed === 1 ? '' : 's'} into concrete geometry.`);
       } else if (result.skipped > 0) {
-        setRepairMessage(`No <use> references could be expanded safely. ${result.skipped} blocked reference${result.skipped === 1 ? '' : 's'} remain.`);
+        commitRepairSource(result.source, `No <use> references could be expanded safely. ${result.skipped} blocked reference${result.skipped === 1 ? '' : 's'} remain.`);
       } else {
-        setRepairMessage('No <use> references needed expansion.');
+        commitRepairSource(result.source, 'No <use> references needed expansion.');
       }
-
-      setPreviewTab('preview');
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to expand <use> references.');
     }
   }
 
+  function applyAuthoringCleanup() {
+    try {
+      const result = cleanupAuthoringMetadata(source);
+      commitRepairSource(
+        result.source,
+        result.changed > 0
+          ? `Removed ${result.changed} authoring metadata item${result.changed === 1 ? '' : 's'} from the SVG.`
+          : 'No authoring metadata cleanup was needed.',
+      );
+    } catch (error) {
+      setRepairMessage(error instanceof Error ? error.message : 'Unable to clean authoring metadata.');
+    }
+  }
+
   function downloadCurrentSvg() {
-    const nextFileName = buildExportFileName(fileName, 'current');
-    downloadSvgSource(source, nextFileName);
-    setExportReport({
-      action: 'download',
-      variant: 'current',
-      fileName: nextFileName,
-      applied: ['No automatic repairs applied.'],
-      remaining: analysis?.exportReadiness.blockers ?? [],
-    });
-    setRepairMessage(`Downloaded ${nextFileName}.`);
+    downloadExportVariant('current');
+  }
+
+  function canBuildExportVariant(variant: ExportVariant) {
+    return variant === 'current' || variant === 'runtime' || Boolean(normalizedExport);
+  }
+
+  function getExportVariantSource(variant: ExportVariant) {
+    switch (variant) {
+      case 'current':
+        return source;
+      case 'runtime':
+        return runtimeExport?.source ?? null;
+      case 'safe':
+      case 'blender':
+        return normalizedExport?.source ?? null;
+    }
+  }
+
+  function getExportVariantChangeSummary(variant: ExportVariant) {
+    switch (variant) {
+      case 'runtime':
+        return {
+          count: runtimeExport?.changed ?? 0,
+          label: 'runtime-preserving cleanup changes',
+        };
+      case 'safe':
+      case 'blender':
+        return {
+          count: normalizedExport?.changed ?? 0,
+          label: 'geometry-safe repairs',
+        };
+      default:
+        return null;
+    }
+  }
+
+  function getExportReportHeading(report: ExportReport) {
+    return report.format === 'png' ? getPngSnapshotLabel(report.variant) : getExportVariantLabel(report.variant);
   }
 
   function buildPresetExportReport(variant: ExportVariant) {
+    const nextFileName = buildExportFileName(fileName, variant);
+    if (variant === 'runtime') {
+      if (!runtimeExport) {
+        return null;
+      }
+
+      const applied = [
+        runtimeExport.details.referenceCleanups > 0 ? `${runtimeExport.details.referenceCleanups} broken or chained references cleaned` : null,
+        runtimeExport.details.authoringCleanup > 0 ? `${runtimeExport.details.authoringCleanup} authoring metadata items stripped` : null,
+      ].filter((value): value is string => Boolean(value));
+
+      return {
+        action: 'download' as const,
+        format: 'svg' as const,
+        variant,
+        fileName: nextFileName,
+        applied: applied.length > 0 ? applied : ['No runtime-preserving cleanup was applied.'],
+        remaining: analysis?.workflowReadiness.runtimeSvg.blockers ?? [],
+      };
+    }
+
     if (!normalizedExport) {
       return null;
     }
 
-    const nextFileName = buildExportFileName(fileName, variant);
     const applied = [
       normalizedExport.details.styleRules > 0 ? `${normalizedExport.details.styleRules} style rules inlined` : null,
       normalizedExport.details.textPaths > 0 ? `${normalizedExport.details.textPaths} text elements converted to paths` : null,
       normalizedExport.details.shapes > 0 ? `${normalizedExport.details.shapes} shapes converted to paths` : null,
+      normalizedExport.details.strokeOutlines > 0 ? `${normalizedExport.details.strokeOutlines} stroke-driven nodes outlined` : null,
+      normalizedExport.details.pathCleanups > 0 ? `${normalizedExport.details.pathCleanups} paths cleaned` : null,
       normalizedExport.details.directTransforms > 0 ? `${normalizedExport.details.directTransforms} direct transforms baked` : null,
       normalizedExport.details.containerTransforms > 0 ? `${normalizedExport.details.containerTransforms} container transforms baked` : null,
       normalizedExport.details.useExpansions > 0 ? `${normalizedExport.details.useExpansions} use references expanded` : null,
+      normalizedExport.details.authoringCleanup > 0 ? `${normalizedExport.details.authoringCleanup} authoring metadata items stripped` : null,
+      normalizedExport.details.referenceCleanups > 0 ? `${normalizedExport.details.referenceCleanups} broken or chained references cleaned` : null,
     ].filter((value): value is string => Boolean(value));
-    const blockedParts = [
-      normalizedExport.details.blockedStyleRules > 0 ? `${normalizedExport.details.blockedStyleRules} blocked style rules` : null,
-      normalizedExport.details.blockedTexts > 0 ? `${normalizedExport.details.blockedTexts} blocked text elements` : null,
-      normalizedExport.details.blockedContainers > 0 ? `${normalizedExport.details.blockedContainers} blocked containers` : null,
-      normalizedExport.details.blockedUses > 0 ? `${normalizedExport.details.blockedUses} blocked use references` : null,
-    ].filter((value): value is string => Boolean(value));
+    const remaining = [...(analysis?.workflowReadiness.geometrySafe.blockers ?? [])];
 
     if (variant === 'blender') {
-      blockedParts.unshift('Text, raster images, and effects still need manual or future Blender-specific cleanup if present.');
+      remaining.unshift('Text, raster images, and effects still need manual or future Blender-specific cleanup if present.');
     }
 
     return {
       action: 'download' as const,
+      format: 'svg' as const,
       variant,
       fileName: nextFileName,
-      applied: applied.length > 0 ? applied : ['No safe repairs were applied.'],
-      remaining: blockedParts,
+      applied: applied.length > 0 ? applied : ['No geometry-safe repairs were applied.'],
+      remaining,
     };
   }
 
   async function copyCurrentSvg() {
-    const nextFileName = buildExportFileName(fileName, 'current');
+    await copyExportVariant('current');
+  }
 
-    try {
-      await copySvgSourceToClipboard(source);
+  function downloadExportVariant(variant: ExportVariant) {
+    if (variant === 'current') {
+      const nextFileName = buildExportFileName(fileName, 'current');
+      downloadSvgSource(source, nextFileName);
       setExportReport({
-        action: 'copy',
+        action: 'download',
+        format: 'svg',
         variant: 'current',
         fileName: nextFileName,
         applied: ['No automatic repairs applied.'],
         remaining: analysis?.exportReadiness.blockers ?? [],
       });
-      setRepairMessage(`Copied ${nextFileName} to the clipboard.`);
-    } catch (error) {
-      setRepairMessage(error instanceof Error ? error.message : 'Unable to copy SVG content to the clipboard.');
-    }
-  }
-
-  function downloadSelectedPreset() {
-    if (selectedExportPreset === 'current') {
-      downloadCurrentSvg();
+      setRepairMessage(`Downloaded ${nextFileName}.`);
       return;
     }
 
-    const exportDetails = buildPresetExportReport(selectedExportPreset);
-    if (!exportDetails || !normalizedExport) {
+    const exportDetails = buildPresetExportReport(variant);
+    const presetSource = getExportVariantSource(variant);
+    const changeSummary = getExportVariantChangeSummary(variant);
+    if (!exportDetails || !presetSource) {
       setRepairMessage('Unable to build a preset export from invalid SVG markup.');
       return;
     }
 
-    downloadSvgSource(normalizedExport.source, exportDetails.fileName);
+    downloadSvgSource(presetSource, exportDetails.fileName);
     setExportReport(exportDetails);
     const blockedSummary = exportDetails.remaining.length > 0 ? ` ${exportDetails.remaining.join(' and ')} remain.` : '';
-    setRepairMessage(`Downloaded ${exportDetails.fileName} with ${normalizedExport.changed} safe repairs applied.${blockedSummary}`);
+    const changeCopy = changeSummary ? ` with ${changeSummary.count} ${changeSummary.label} applied.` : '.';
+    setRepairMessage(`Downloaded ${exportDetails.fileName}${changeCopy}${blockedSummary}`);
   }
 
-  async function copySelectedPreset() {
-    if (selectedExportPreset === 'current') {
-      await copyCurrentSvg();
+  async function copyExportVariant(variant: ExportVariant) {
+    if (variant === 'current') {
+      const nextFileName = buildExportFileName(fileName, 'current');
+
+      try {
+        await copySvgSourceToClipboard(source);
+        setExportReport({
+          action: 'copy',
+          format: 'svg',
+          variant: 'current',
+          fileName: nextFileName,
+          applied: ['No automatic repairs applied.'],
+          remaining: analysis?.exportReadiness.blockers ?? [],
+        });
+        setRepairMessage(`Copied ${nextFileName} to the clipboard.`);
+      } catch (error) {
+        setRepairMessage(error instanceof Error ? error.message : 'Unable to copy SVG content to the clipboard.');
+      }
       return;
     }
 
-    const exportDetails = buildPresetExportReport(selectedExportPreset);
-    if (!exportDetails || !normalizedExport) {
+    const exportDetails = buildPresetExportReport(variant);
+    const presetSource = getExportVariantSource(variant);
+    const changeSummary = getExportVariantChangeSummary(variant);
+    if (!exportDetails || !presetSource) {
       setRepairMessage('Unable to build a preset clipboard export from invalid SVG markup.');
       return;
     }
 
     try {
-      await copySvgSourceToClipboard(normalizedExport.source);
+      await copySvgSourceToClipboard(presetSource);
       setExportReport({
         ...exportDetails,
         action: 'copy',
+        format: 'svg',
       });
       const blockedSummary = exportDetails.remaining.length > 0 ? ` ${exportDetails.remaining.join(' and ')} remain.` : '';
-      setRepairMessage(`Copied ${exportDetails.fileName} to the clipboard with ${normalizedExport.changed} safe repairs applied.${blockedSummary}`);
+      const changeCopy = changeSummary ? ` with ${changeSummary.count} ${changeSummary.label} applied.` : '.';
+      setRepairMessage(`Copied ${exportDetails.fileName} to the clipboard${changeCopy}${blockedSummary}`);
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to copy preset SVG content to the clipboard.');
     }
   }
 
+  async function downloadPngSnapshotVariant(variant: ExportVariant) {
+    const exportSource = getExportVariantSource(variant);
+    if (!exportSource) {
+      setRepairMessage('Unable to build a PNG snapshot from invalid SVG markup.');
+      return;
+    }
+
+    const nextFileName = buildPngExportFileName(fileName, variant);
+    const baseReport = variant === 'current'
+      ? {
+          applied: ['No automatic repairs applied.'],
+          remaining: [] as string[],
+        }
+      : buildPresetExportReport(variant);
+    if (!baseReport) {
+      setRepairMessage('Unable to build a PNG snapshot from invalid SVG markup.');
+      return;
+    }
+
+    try {
+      const snapshot = await createPngSnapshot(exportSource);
+      downloadBlob(snapshot.blob, nextFileName);
+      setExportReport({
+        action: 'download',
+        format: 'png',
+        variant,
+        fileName: nextFileName,
+        applied: [...baseReport.applied, `Rasterized to a ${snapshot.width} x ${snapshot.height} PNG snapshot.`],
+        remaining: [],
+      });
+      const changeSummary = getExportVariantChangeSummary(variant);
+      const changeCopy = changeSummary && changeSummary.count > 0 ? ` with ${changeSummary.count} ${changeSummary.label} applied` : '';
+      setRepairMessage(`Downloaded ${nextFileName} as a ${snapshot.width} x ${snapshot.height} PNG snapshot${changeCopy}.`);
+    } catch (error) {
+      setRepairMessage(error instanceof Error ? error.message : 'Unable to render a PNG snapshot in this browser context.');
+    }
+  }
+
+  function downloadSelectedPreset() {
+    downloadExportVariant(selectedExportPreset);
+  }
+
+  async function copySelectedPreset() {
+    await copyExportVariant(selectedExportPreset);
+  }
+
   function selectSection(section: WorkspaceSection) {
     setActiveSection(section);
     setInspectorTab(defaultInspectorTabBySection[section]);
+  }
+
+  function inspectSelectedNode(nodeId: string) {
+    setSelectedNodeId(nodeId);
+    setActiveSection('inspect');
+    setInspectorTab('selection');
+  }
+
+  function handlePreviewPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!isPreviewInteractive || event.button !== 0) {
+      return;
+    }
+
+    previewPointerRef.current = {
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      distance: 0,
+    };
+    suppressPreviewClickRef.current = false;
+    setIsPanningPreview(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePreviewPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const currentPointer = previewPointerRef.current;
+    if (!currentPointer || currentPointer.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - currentPointer.lastX;
+    const deltaY = event.clientY - currentPointer.lastY;
+    if (deltaX === 0 && deltaY === 0) {
+      return;
+    }
+
+    const distance = currentPointer.distance + Math.abs(deltaX) + Math.abs(deltaY);
+    previewPointerRef.current = {
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      distance,
+    };
+
+    if (distance > 4) {
+      suppressPreviewClickRef.current = true;
+    }
+
+    panPreview(deltaX, deltaY);
+  }
+
+  function handlePreviewPointerUp(event: PointerEvent<HTMLDivElement>) {
+    const currentPointer = previewPointerRef.current;
+    if (!currentPointer || currentPointer.pointerId !== event.pointerId) {
+      return;
+    }
+
+    stopPreviewPan();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePreviewWheel(event: WheelEvent<HTMLDivElement>) {
+    if (!isPreviewInteractive) {
+      return;
+    }
+
+    event.preventDefault();
+    zoomPreview(event.deltaY < 0 ? PREVIEW_SCALE_STEP : -PREVIEW_SCALE_STEP);
   }
 
   function renderFileSection() {
@@ -610,13 +1093,56 @@ function App() {
 
         <section className="editor-card section-card">
           <label className="editor-label" htmlFor={sourceId}>SVG source</label>
+          <div className="source-action-bar" role="toolbar" aria-label="Source actions">
+            <button className="ghost-button source-action-button" type="button" onClick={applySourceOptimize} disabled={Boolean(parseError) || !source.trim()}>
+              Optimize
+            </button>
+            <button className="ghost-button source-action-button" type="button" onClick={applySourcePrettify} disabled={Boolean(parseError) || !source.trim()}>
+              Prettify
+            </button>
+            <button className="ghost-button source-action-button" type="button" onClick={applySourceClear}>
+              Clear
+            </button>
+          </div>
+          <div className="source-feedback-grid" aria-label="Editor feedback">
+            <div className="source-feedback-card">
+              <span className={`readiness-badge ${parseError ? 'blocked' : 'ready'}`}>
+                {parseError ? 'Parse error' : 'Parsed'}
+              </span>
+              <p className="source-feedback-copy">
+                {parseError
+                  ? parseError
+                  : 'SVG parses successfully. Preview and inspector stay in sync with the current editor source.'}
+              </p>
+            </div>
+            <div className="source-feedback-card compact-source-metrics">
+              <span className="status-label">Cursor</span>
+              <strong>{`Line ${sourceMetrics.line}, Col ${sourceMetrics.column}`}</strong>
+              <p className="source-feedback-copy">{sourceMetrics.selectionLength > 0 ? `${sourceMetrics.selectionLength} selected` : 'No selection'}</p>
+            </div>
+            <div className="source-feedback-card compact-source-metrics">
+              <span className="status-label">Document</span>
+              <strong>{`${sourceMetrics.lines} lines`}</strong>
+              <p className="source-feedback-copy">{`${sourceMetrics.characters} characters`}</p>
+            </div>
+          </div>
           <textarea
             id={sourceId}
             className="source-editor"
             value={source}
-            onChange={(event) => setSource(event.target.value)}
+            onChange={(event) => {
+              setSource(event.target.value);
+              setRecentChangePaths([]);
+              setHoveredPreviewNodeIds([]);
+              setSourceActionMessage(null);
+              updateSourceSelection(event.target.selectionStart, event.target.selectionEnd);
+            }}
+            onClick={(event) => updateSourceSelection(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
+            onKeyUp={(event) => updateSourceSelection(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
+            onSelect={(event) => updateSourceSelection(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
             spellCheck={false}
           />
+          {sourceActionMessage ? <p className="source-action-feedback">{sourceActionMessage}</p> : null}
         </section>
       </>
     );
@@ -748,6 +1274,14 @@ function App() {
             <button
               className="ghost-button repair-button"
               type="button"
+              onClick={applyAuthoringCleanup}
+              disabled={!analysis || authoringCleanupCount === 0}
+            >
+              Strip {authoringCleanupCount} authoring metadata items
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
               onClick={applyStyleInlining}
               disabled={!analysis || analysis.opportunities.inlineableStyleRuleCount === 0}
             >
@@ -760,6 +1294,30 @@ function App() {
               disabled={!analysis || analysis.opportunities.primitiveShapeCount === 0}
             >
               Convert {analysis?.opportunities.primitiveShapeCount ?? 0} shape primitives to paths
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyStrokeOutline}
+              disabled={!analysis || strokeOutlineCount === 0}
+            >
+              Outline {strokeOutlineCount} stroke-driven nodes
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyPathCleanup}
+              disabled={!analysis || pathCleanupCount === 0}
+            >
+              Clean {pathCleanupCount} paths
+            </button>
+            <button
+              className="ghost-button repair-button"
+              type="button"
+              onClick={applyReferenceCleanup}
+              disabled={!analysis || referenceCleanupCount === 0}
+            >
+              Clean {referenceCleanupCount} broken/external refs
             </button>
             <button
               className="ghost-button repair-button"
@@ -827,8 +1385,51 @@ function App() {
                   )
                 : 'Load a valid SVG to see repair actions.'}
             </p>
+            <p className="repair-note">
+              {analysis
+                ? getPathCleanupMessage(pathCleanupCount)
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+            <p className="repair-note">
+              {analysis
+                ? getReferenceCleanupMessage(referenceCleanupCount)
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+            <p className="repair-note">
+              {analysis
+                ? getStrokeOutlineMessage(strokeOutlineCount, blockedStrokeOutlineCount)
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
+            <p className="repair-note">
+              {analysis
+                ? authoringCleanupCount > 0
+                  ? `${authoringCleanupCount} authoring metadata item${authoringCleanupCount === 1 ? '' : 's'} can be stripped without changing visible geometry.`
+                  : 'No editor-specific metadata cleanup is currently needed.'
+                : 'Load a valid SVG to see repair actions.'}
+            </p>
           </div>
           {repairMessage ? <p className="repair-feedback">{repairMessage}</p> : null}
+          {recentChangedNodes.length > 0 ? (
+            <div className="repair-change-card">
+              <p className="font-section-title">Recently changed preview nodes</p>
+              <ul className="warning-list interactive-list" aria-label="Recently changed preview nodes">
+                {recentChangedNodes.map((node) => (
+                  <li
+                    key={`changed-${node.id}`}
+                    onMouseEnter={() => setPreviewHover([node.id])}
+                    onMouseLeave={clearPreviewHover}
+                    onFocus={() => setPreviewHover([node.id])}
+                    onBlur={clearPreviewHover}
+                  >
+                    <button className="inline-list-button" type="button" onClick={() => inspectSelectedNode(node.id)}>
+                      <span className="risk-badge info">changed</span>
+                      <span>{getNodeListLabel(node)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       </>
     );
@@ -838,7 +1439,7 @@ function App() {
     return (
       <section className="focus-card export-card section-card">
         <h3>Export</h3>
-        <p className="export-copy">Choose an export preset and download or copy the resulting SVG directly from the browser.</p>
+        <p className="export-copy">Choose an export preset and download or copy the resulting SVG directly from the browser, or render the selected preset into a PNG snapshot.</p>
         <div className="export-presets" role="tablist" aria-label="Export presets">
           {exportPresetCards.map((preset) => (
             <button
@@ -863,7 +1464,7 @@ function App() {
             className="primary-button export-button"
             type="button"
             onClick={downloadSelectedPreset}
-            disabled={selectedExportPreset !== 'current' && !normalizedExport}
+            disabled={!canBuildExportVariant(selectedExportPreset)}
           >
             Download {getExportVariantLabel(selectedExportPreset)}
           </button>
@@ -871,9 +1472,17 @@ function App() {
             className="primary-button export-button"
             type="button"
             onClick={() => void copySelectedPreset()}
-            disabled={selectedExportPreset !== 'current' && !normalizedExport}
+            disabled={!canBuildExportVariant(selectedExportPreset)}
           >
             Copy {getExportVariantLabel(selectedExportPreset)}
+          </button>
+          <button
+            className="ghost-button export-button"
+            type="button"
+            onClick={() => void downloadPngSnapshotVariant(selectedExportPreset)}
+            disabled={!canBuildExportVariant(selectedExportPreset)}
+          >
+            Download PNG snapshot
           </button>
         </div>
         <ul className="tag-list compact export-list">
@@ -882,7 +1491,11 @@ function App() {
             <strong>{buildExportFileName(fileName, 'current')}</strong>
           </li>
           <li>
-            <span>Normalized file</span>
+            <span>Browser/runtime preset</span>
+            <strong>{buildExportFileName(fileName, 'runtime')}</strong>
+          </li>
+          <li>
+            <span>Geometry-safe preset</span>
             <strong>{buildExportFileName(fileName, 'safe')}</strong>
           </li>
           <li>
@@ -894,7 +1507,7 @@ function App() {
           <div className="export-report">
             <div className="export-report-heading">
               <span className="status-label">{exportReport.action === 'copy' ? 'Last copy' : 'Last export'}</span>
-              <strong>{getExportVariantLabel(exportReport.variant)}</strong>
+              <strong>{getExportReportHeading(exportReport)}</strong>
             </div>
             <p className="export-report-file">{exportReport.fileName}</p>
             <p className="export-report-label">Applied</p>
@@ -976,6 +1589,76 @@ function App() {
       case 'readiness':
         return (
           <div className="inspector-stack tabbed-stack">
+            <section className="focus-card section-card">
+              <div className="readiness-header">
+                <h3>Workflow scorecards</h3>
+                <span className="status-label">Profiles</span>
+              </div>
+              <div className="readiness-scorecards">
+                <article className="readiness-scorecard">
+                  <div className="readiness-header">
+                    <div>
+                      <p className="scorecard-kicker">Geometry-safe</p>
+                      <strong>Geometry-safe export</strong>
+                    </div>
+                    <span className={`readiness-badge ${analysis?.workflowReadiness.geometrySafe.status ?? 'blocked'}`}>
+                      {analysis ? getReadinessLabel(analysis.workflowReadiness.geometrySafe.status) : 'Blocked'}
+                    </span>
+                  </div>
+                  <p className="readiness-score">{analysis?.workflowReadiness.geometrySafe.score ?? 0}</p>
+                  <p className="readiness-copy">{analysis?.workflowReadiness.geometrySafe.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
+                  <ul className="warning-list compact-readiness-list">
+                    {(analysis?.workflowReadiness.geometrySafe.strengths ?? []).map((item) => (
+                      <li key={`geometry-strength-${item}`}>
+                        <span className="risk-badge info">signal</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                    {(analysis?.workflowReadiness.geometrySafe.blockers ?? []).slice(0, 2).map((item) => (
+                      <li key={`geometry-blocker-${item}`}>
+                        <span className="risk-badge warning">blocked</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+
+                <article className="readiness-scorecard">
+                  <div className="readiness-header">
+                    <div>
+                      <p className="scorecard-kicker">Runtime-preserving</p>
+                      <strong>Browser/runtime SVG</strong>
+                    </div>
+                    <span className={`readiness-badge ${analysis?.workflowReadiness.runtimeSvg.status ?? 'blocked'}`}>
+                      {analysis ? getReadinessLabel(analysis.workflowReadiness.runtimeSvg.status) : 'Blocked'}
+                    </span>
+                  </div>
+                  <p className="readiness-score">{analysis?.workflowReadiness.runtimeSvg.score ?? 0}</p>
+                  <p className="readiness-copy">{analysis?.workflowReadiness.runtimeSvg.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
+                  <ul className="warning-list compact-readiness-list">
+                    {(analysis?.workflowReadiness.runtimeSvg.strengths ?? []).map((item) => (
+                      <li key={`runtime-strength-${item}`}>
+                        <span className="risk-badge info">signal</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                    {(analysis?.workflowReadiness.runtimeSvg.autoFixes ?? []).slice(0, 2).map((item) => (
+                      <li key={`runtime-fix-${item}`}>
+                        <span className="risk-badge info">auto-fix</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                    {(analysis?.workflowReadiness.runtimeSvg.blockers ?? []).slice(0, 2).map((item) => (
+                      <li key={`runtime-blocker-${item}`}>
+                        <span className="risk-badge warning">blocked</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              </div>
+            </section>
+
             <section className="focus-card readiness-card section-card">
               <div className="readiness-header">
                 <h3>Export readiness</h3>
@@ -998,7 +1681,9 @@ function App() {
                   ? 'This SVG currently has no tracked blockers for the safe export pipeline.'
                   : analysis?.exportReadiness.status === 'repairable'
                     ? 'Run the safe repair pass to clear the remaining auto-fixable items.'
-                    : 'This SVG still has unresolved blockers that need manual editing or future repair support.'}
+                    : hasRuntimeDependencies
+                      ? 'This SVG still depends on runtime-only features such as media or timed animation. Keep a browser/runtime SVG export if you need that behavior, or simplify it before geometry-safe export.'
+                      : 'This SVG still has unresolved blockers that need manual editing or future repair support.'}
               </p>
               <ul className="warning-list readiness-list">
                 {analysis?.exportReadiness.autoFixes.map((item) => (
@@ -1017,6 +1702,30 @@ function App() {
                   <li>
                     <span className="risk-badge info">clear</span>
                     <span>No tracked export blockers remain.</span>
+                  </li>
+                ) : null}
+              </ul>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Export guidance</h3>
+              <ul className="warning-list">
+                {(analysis?.runtimeFeatures.mediaElementCount ?? 0) > 0 ? (
+                  <li>
+                    <span className="risk-badge warning">runtime</span>
+                    <span>Keep a browser/runtime SVG profile if you need embedded media playback. Geometry-safe exports should remove or replace media elements first.</span>
+                  </li>
+                ) : null}
+                {(analysis?.runtimeFeatures.animationElementCount ?? 0) > 0 ? (
+                  <li>
+                    <span className="risk-badge info">motion</span>
+                    <span>Native SVG animation is preserved best in self-contained browser SVG output, not in flattened geometry exports.</span>
+                  </li>
+                ) : null}
+                {analysis && analysis.runtimeFeatures.mediaElementCount === 0 && analysis.runtimeFeatures.animationElementCount === 0 ? (
+                  <li>
+                    <span className="risk-badge info">profile</span>
+                    <span>This file does not currently depend on runtime media or animation features for export behavior.</span>
                   </li>
                 ) : null}
               </ul>
@@ -1054,10 +1763,20 @@ function App() {
           <div className="inspector-stack tabbed-stack">
             <section className="focus-card section-card">
               <h3>Risk scan</h3>
+              {analysis?.risks.some((risk) => risk.nodeIds.length > 0) ? (
+                <p className="repair-note">Hover a risk entry to spotlight affected nodes in the preview.</p>
+              ) : null}
               <ul className="warning-list risk-list">
                 {analysis && analysis.risks.length > 0 ? (
                   analysis.risks.map((risk) => (
-                    <li key={risk.message}>
+                    <li
+                      key={risk.message}
+                      className={risk.nodeIds.length > 0 ? 'interactive-risk-item' : undefined}
+                      onMouseEnter={() => setPreviewHover(risk.nodeIds)}
+                      onMouseLeave={clearPreviewHover}
+                      onFocus={() => setPreviewHover(risk.nodeIds)}
+                      onBlur={clearPreviewHover}
+                    >
                       <span className={`risk-badge ${risk.severity}`}>{risk.severity}</span>
                       <span>{risk.message}</span>
                     </li>
@@ -1158,6 +1877,99 @@ function App() {
                 ))}
               </ul>
             </section>
+
+            <section className="focus-card section-card">
+              <h3>Runtime features</h3>
+              <ul className="tag-list compact">
+                <li>
+                  <span>Animations</span>
+                  <strong>{analysis?.runtimeFeatures.animationElementCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Media</span>
+                  <strong>{analysis?.runtimeFeatures.mediaElementCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Links</span>
+                  <strong>{analysis?.runtimeFeatures.linkElementCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Local refs</span>
+                  <strong>{analysis?.runtimeFeatures.localReferenceCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>External refs</span>
+                  <strong>{analysis?.runtimeFeatures.externalReferenceCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Profile</span>
+                  <strong>{analysis?.runtimeFeatures.baseProfile ?? 'full'}</strong>
+                </li>
+              </ul>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Defs and references</h3>
+              <ul className="tag-list compact">
+                <li>
+                  <span>Defs</span>
+                  <strong>{analysis?.inventory.defsCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Gradients</span>
+                  <strong>{((analysis?.inventory.linearGradientCount ?? 0) + (analysis?.inventory.radialGradientCount ?? 0))}</strong>
+                </li>
+                <li>
+                  <span>Gradient stops</span>
+                  <strong>{analysis?.inventory.stopCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Style blocks</span>
+                  <strong>{analysis?.inventory.styleBlockCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Use refs</span>
+                  <strong>{analysis?.inventory.useCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>External refs</span>
+                  <strong>{analysis?.inventory.externalReferenceCount ?? 0}</strong>
+                </li>
+              </ul>
+            </section>
+
+            <section className="focus-card section-card">
+              <h3>Authoring metadata</h3>
+              <ul className="tag-list compact">
+                <li>
+                  <span>Metadata nodes</span>
+                  <strong>{analysis?.authoringMetadata.metadataElementCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Namespaced nodes</span>
+                  <strong>{analysis?.authoringMetadata.namespacedNodeCount ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Namespaced attrs</span>
+                  <strong>{analysis?.authoringMetadata.namespacedAttributeCount ?? 0}</strong>
+                </li>
+              </ul>
+              <ul className="warning-list compact-note-list">
+                {analysis && analysis.authoringMetadata.namespaceCounts.length > 0 ? (
+                  analysis.authoringMetadata.namespaceCounts.map((entry) => (
+                    <li key={entry.prefix}>
+                      <span>{entry.prefix}</span>
+                      <strong>{entry.count}</strong>
+                    </li>
+                  ))
+                ) : (
+                  <li>
+                    <span>No authoring-specific namespace usage detected.</span>
+                    <strong>0</strong>
+                  </li>
+                )}
+              </ul>
+            </section>
           </div>
         );
     }
@@ -1192,9 +2004,7 @@ function App() {
             Open SVG
           </button>
           <button className="primary-button" type="button" onClick={() => {
-            setSource(sampleSvg);
-            setFileName('sample.svg');
-            setPreviewTab('preview');
+            loadSvgSource(sampleSvg, 'sample.svg');
           }}>
             Load Sample
           </button>
@@ -1273,6 +2083,65 @@ function App() {
             </div>
           </div>
 
+          <div className="preview-workflow-bar" role="toolbar" aria-label="Preview workspace actions">
+            <div className="preview-workflow-group">
+              <span className="preview-workflow-label">Intake</span>
+              <button className="ghost-button preview-workflow-button" type="button" onClick={() => fileInputRef.current?.click()}>
+                Open SVG
+              </button>
+              <button className="primary-button preview-workflow-button" type="button" onClick={() => loadSvgSource(sampleSvg, 'sample.svg')}>
+                Load sample
+              </button>
+            </div>
+            <div className="preview-workflow-group">
+              <span className="preview-workflow-label">Download</span>
+              <button className="ghost-button preview-workflow-button" type="button" onClick={() => downloadExportVariant('current')}>
+                Download current
+              </button>
+              <button className="ghost-button preview-workflow-button" type="button" onClick={() => downloadExportVariant('safe')} disabled={!normalizedExport}>
+                Download geometry-safe
+              </button>
+            </div>
+            <div className="preview-workflow-group">
+              <span className="preview-workflow-label">Share</span>
+              <button className="ghost-button preview-workflow-button" type="button" onClick={() => void copyExportVariant('current')}>
+                Copy current
+              </button>
+              <button className="ghost-button preview-workflow-button" type="button" onClick={() => void copyExportVariant('safe')} disabled={!normalizedExport}>
+                Copy geometry-safe
+              </button>
+            </div>
+          </div>
+
+          <div className="preview-toolbar" role="toolbar" aria-label="Preview navigation controls">
+            <div className="preview-control-group">
+              <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(-PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
+                Zoom out
+              </button>
+              <p className="preview-zoom-readout" aria-live="polite">{Math.round(previewViewport.scale * 100)}%</p>
+              <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
+                Zoom in
+              </button>
+              <button className="ghost-button preview-control" type="button" onClick={resetPreviewViewport} disabled={!isPreviewInteractive}>
+                Reset view
+              </button>
+            </div>
+            <div className="preview-control-group">
+              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, -PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
+                Pan up
+              </button>
+              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(-PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
+                Pan left
+              </button>
+              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
+                Pan right
+              </button>
+              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
+                Pan down
+              </button>
+            </div>
+          </div>
+
           <div
             className={`preview-surface ${isDragging ? 'is-dragging' : ''}`}
             onDragEnter={(event) => {
@@ -1285,6 +2154,12 @@ function App() {
               setIsDragging(false);
             }}
             onDrop={handleDrop}
+            onPointerDown={handlePreviewPointerDown}
+            onPointerMove={handlePreviewPointerMove}
+            onPointerUp={handlePreviewPointerUp}
+            onPointerCancel={stopPreviewPan}
+            onLostPointerCapture={stopPreviewPan}
+            onWheel={handlePreviewWheel}
             aria-label="SVG preview area"
           >
             <div className="preview-artboard">
@@ -1297,18 +2172,29 @@ function App() {
                   </div>
                 ) : (
                   <div
-                    ref={previewFrameRef}
-                    className="svg-preview-frame"
-                    onClick={(event) => {
-                      const target = event.target as Element | null;
-                      const node = target?.closest('[data-svg-node-id]');
-                      const nodeId = node?.getAttribute('data-svg-node-id');
-                      if (nodeId) {
-                        setSelectedNodeId(nodeId);
-                      }
-                    }}
-                    dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
-                  />
+                    className={`preview-viewport${isPanningPreview ? ' is-panning' : ''}`}
+                    aria-label="Preview viewport"
+                    style={{ transform: `translate(${previewViewport.offsetX}px, ${previewViewport.offsetY}px) scale(${previewViewport.scale})` }}
+                  >
+                    <div
+                      ref={previewFrameRef}
+                      className="svg-preview-frame"
+                      onClick={(event) => {
+                        if (suppressPreviewClickRef.current) {
+                          suppressPreviewClickRef.current = false;
+                          return;
+                        }
+
+                        const target = event.target as Element | null;
+                        const node = target?.closest('[data-svg-node-id]');
+                        const nodeId = node?.getAttribute('data-svg-node-id');
+                        if (nodeId) {
+                          inspectSelectedNode(nodeId);
+                        }
+                      }}
+                      dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
+                    />
+                  </div>
                 )
               ) : (
                 <pre className="markup-preview">{deferredSource}</pre>
@@ -1325,9 +2211,9 @@ function App() {
               {activeSection === 'file'
                 ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
                 : activeSection === 'inspect'
-                  ? 'Select elements in the preview to drive the inspection tabs and reveal node-level details.'
+                  ? 'Select elements in the preview to drive the inspection tabs and reveal node-level details. Drag to pan and use the preview controls or mouse wheel to zoom.'
                   : activeSection === 'repair'
-                    ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right.'
+                    ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
                     : 'Choose an export preset on the left and verify the remaining blockers in the readiness tab.'}
             </p>
           </div>
