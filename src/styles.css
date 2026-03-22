@@ -71,7 +71,14 @@ textarea {
 
 .topbar-actions {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
+}
+
+.topbar-workflow-bar {
+  justify-content: flex-end;
 }
 
 .primary-button,
@@ -1243,6 +1250,7 @@ textarea {
   }
 
   .topbar-actions > button,
+  .topbar-actions > .preview-workflow-bar,
   .preview-tabs > button,
   .preview-control-group > button {
     flex: 1 1 auto;

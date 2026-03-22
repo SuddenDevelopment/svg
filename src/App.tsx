@@ -38,8 +38,8 @@ import {
 } from './lib/svg-normalization';
 
 type PreviewTab = 'preview' | 'source';
-type WorkspaceSection = 'file' | 'inspect' | 'repair' | 'export';
-type InspectorTab = 'overview' | 'selection' | 'readiness' | 'warnings';
+type WorkspaceSection = 'file' | 'repair' | 'export';
+type InspectorTab = 'overview' | 'selection' | 'warnings';
 
 type ExportReport = {
   action: 'download' | 'copy';
@@ -99,12 +99,6 @@ const primaryNavItems: Array<{
     enabled: true,
   },
   {
-    id: 'inspect',
-    label: 'Inspect',
-    shortLabel: 'In',
-    enabled: true,
-  },
-  {
     id: 'repair',
     label: 'Repair',
     shortLabel: 'Re',
@@ -138,23 +132,20 @@ const primaryNavItems: Array<{
 
 const featuredTags = ['path', 'text', 'image', 'video', 'use', 'defs', 'style', 'animate', 'animateTransform', 'set'];
 const inspectorTabsBySection: Record<WorkspaceSection, InspectorTab[]> = {
-  file: ['overview', 'warnings'],
-  inspect: ['overview', 'selection', 'warnings'],
-  repair: ['overview', 'readiness', 'warnings'],
-  export: ['overview', 'readiness', 'warnings'],
+  file: ['overview', 'warnings', 'selection'],
+  repair: ['overview', 'warnings', 'selection'],
+  export: ['overview', 'warnings', 'selection'],
 };
 
 const defaultInspectorTabBySection: Record<WorkspaceSection, InspectorTab> = {
   file: 'overview',
-  inspect: 'selection',
-  repair: 'readiness',
-  export: 'readiness',
+  repair: 'overview',
+  export: 'overview',
 };
 
 const inspectorTabLabels: Record<InspectorTab, string> = {
   overview: 'Overview',
   selection: 'Selection',
-  readiness: 'Readiness',
   warnings: 'Warnings',
 };
 
@@ -1060,7 +1051,6 @@ function App() {
 
   function inspectSelectedNode(nodeId: string) {
     setSelectedNodeId(nodeId);
-    setActiveSection('inspect');
     setInspectorTab('selection');
   }
 
@@ -1214,44 +1204,6 @@ function App() {
             spellCheck={false}
           />
           {sourceActionMessage ? <p className="source-action-feedback">{sourceActionMessage}</p> : null}
-        </section>
-      </>
-    );
-  }
-
-  function renderInspectSection() {
-    return (
-      <>
-        <section className="status-card compact-card">
-          <p className="status-label">Selection</p>
-          <strong>{selectedNode ? `<${selectedNode.name}>` : 'No element selected'}</strong>
-          <p>
-            {selectedNode
-              ? selectedNode.textPreview || 'This element does not expose direct text content.'
-              : 'Select an element in the preview to inspect its attributes and related warnings.'}
-          </p>
-        </section>
-
-        <section className="focus-card section-card quick-stats-card">
-          <h3>Quick stats</h3>
-          <dl className="metrics-grid compact-metrics">
-            <div>
-              <dt>Root</dt>
-              <dd>{analysis?.rootName ?? 'n/a'}</dd>
-            </div>
-            <div>
-              <dt>Elements</dt>
-              <dd>{analysis?.totalElements ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Warnings</dt>
-              <dd>{parseError ? 1 : analysis?.warnings.length ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Risks</dt>
-              <dd>{analysis?.risks.length ?? 0}</dd>
-            </div>
-          </dl>
         </section>
       </>
     );
@@ -1614,8 +1566,6 @@ function App() {
 
   function renderActiveSection() {
     switch (activeSection) {
-      case 'inspect':
-        return renderInspectSection();
       case 'repair':
         return renderRepairSection();
       case 'export':
@@ -1624,6 +1574,180 @@ function App() {
       default:
         return renderFileSection();
     }
+  }
+
+  function renderReadinessOverview() {
+    return (
+      <>
+        <section className="focus-card section-card">
+          <div className="readiness-header" data-fit-container>
+            <h3>Workflow scorecards</h3>
+            <span className="status-label">Profiles</span>
+          </div>
+          <div className="readiness-scorecards" data-fit-container data-fit-mode="children">
+            <article className="readiness-scorecard">
+              <div className="readiness-header" data-fit-container>
+                <div>
+                  <p className="scorecard-kicker">Geometry-safe</p>
+                  <strong>Geometry-safe export</strong>
+                </div>
+                <span className={`readiness-badge ${analysis?.workflowReadiness.geometrySafe.status ?? 'blocked'}`}>
+                  {analysis ? getReadinessLabel(analysis.workflowReadiness.geometrySafe.status) : 'Blocked'}
+                </span>
+              </div>
+              <p className="readiness-score">{analysis?.workflowReadiness.geometrySafe.score ?? 0}</p>
+              <p className="readiness-copy">{analysis?.workflowReadiness.geometrySafe.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
+              <ul className="warning-list compact-readiness-list">
+                {(analysis?.workflowReadiness.geometrySafe.strengths ?? []).map((item) => (
+                  <li key={`geometry-strength-${item}`} data-fit-container>
+                    <span className="risk-badge info">signal</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+                {(analysis?.workflowReadiness.geometrySafe.blockers ?? []).slice(0, 2).map((item) => (
+                  <li key={`geometry-blocker-${item}`} data-fit-container>
+                    <span className="risk-badge warning">blocked</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="readiness-scorecard">
+              <div className="readiness-header" data-fit-container>
+                <div>
+                  <p className="scorecard-kicker">Runtime-preserving</p>
+                  <strong>Browser/runtime SVG</strong>
+                </div>
+                <span className={`readiness-badge ${analysis?.workflowReadiness.runtimeSvg.status ?? 'blocked'}`}>
+                  {analysis ? getReadinessLabel(analysis.workflowReadiness.runtimeSvg.status) : 'Blocked'}
+                </span>
+              </div>
+              <p className="readiness-score">{analysis?.workflowReadiness.runtimeSvg.score ?? 0}</p>
+              <p className="readiness-copy">{analysis?.workflowReadiness.runtimeSvg.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
+              <ul className="warning-list compact-readiness-list">
+                {(analysis?.workflowReadiness.runtimeSvg.strengths ?? []).map((item) => (
+                  <li key={`runtime-strength-${item}`} data-fit-container>
+                    <span className="risk-badge info">signal</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+                {(analysis?.workflowReadiness.runtimeSvg.autoFixes ?? []).slice(0, 2).map((item) => (
+                  <li key={`runtime-fix-${item}`} data-fit-container>
+                    <span className="risk-badge info">auto-fix</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+                {(analysis?.workflowReadiness.runtimeSvg.blockers ?? []).slice(0, 2).map((item) => (
+                  <li key={`runtime-blocker-${item}`} data-fit-container>
+                    <span className="risk-badge warning">blocked</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section className="focus-card readiness-card section-card">
+          <div className="readiness-header" data-fit-container>
+            <h3>Export readiness</h3>
+            <span className={`readiness-badge ${analysis?.exportReadiness.status ?? 'blocked'}`}>
+              {analysis ? getReadinessLabel(analysis.exportReadiness.status) : 'Blocked'}
+            </span>
+          </div>
+          <dl className="metrics-grid readiness-metrics compact-metrics" data-fit-container data-fit-mode="children">
+            <div>
+              <dt>Auto-fixable</dt>
+              <dd>{analysis?.exportReadiness.autoFixCount ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Blocked</dt>
+              <dd>{analysis?.exportReadiness.blockerCount ?? 0}</dd>
+            </div>
+          </dl>
+          <p className="readiness-copy">
+            {analysis?.exportReadiness.status === 'ready'
+              ? 'This SVG currently has no tracked blockers for the safe export pipeline.'
+              : analysis?.exportReadiness.status === 'repairable'
+                ? 'Run the safe repair pass to clear the remaining auto-fixable items.'
+                : hasRuntimeDependencies
+                  ? 'This SVG still depends on runtime-only features such as media or timed animation. Keep a browser/runtime SVG export if you need that behavior, or simplify it before geometry-safe export.'
+                  : 'This SVG still has unresolved blockers that need manual editing or future repair support.'}
+          </p>
+          <ul className="warning-list readiness-list">
+            {analysis?.exportReadiness.autoFixes.map((item) => (
+              <li key={`fix-${item}`} data-fit-container>
+                <span className="risk-badge info">auto-fix</span>
+                <span>{item}</span>
+              </li>
+            ))}
+            {analysis?.exportReadiness.blockers.map((item) => (
+              <li key={`block-${item}`} data-fit-container>
+                <span className="risk-badge warning">blocked</span>
+                <span>{item}</span>
+              </li>
+            ))}
+            {analysis && analysis.exportReadiness.autoFixes.length === 0 && analysis.exportReadiness.blockers.length === 0 ? (
+              <li data-fit-container>
+                <span className="risk-badge info">clear</span>
+                <span>No tracked export blockers remain.</span>
+              </li>
+            ) : null}
+          </ul>
+        </section>
+
+        <section className="focus-card section-card">
+          <h3>Export guidance</h3>
+          <ul className="warning-list">
+            {(analysis?.runtimeFeatures.mediaElementCount ?? 0) > 0 ? (
+              <li>
+                <span className="risk-badge warning">runtime</span>
+                <span>Keep a browser/runtime SVG profile if you need embedded media playback. Geometry-safe exports should remove or replace media elements first.</span>
+              </li>
+            ) : null}
+            {(analysis?.runtimeFeatures.animationElementCount ?? 0) > 0 ? (
+              <li>
+                <span className="risk-badge info">motion</span>
+                <span>Native SVG animation is preserved best in self-contained browser SVG output, not in flattened geometry exports.</span>
+              </li>
+            ) : null}
+            {analysis && analysis.runtimeFeatures.mediaElementCount === 0 && analysis.runtimeFeatures.animationElementCount === 0 ? (
+              <li>
+                <span className="risk-badge info">profile</span>
+                <span>This file does not currently depend on runtime media or animation features for export behavior.</span>
+              </li>
+            ) : null}
+          </ul>
+        </section>
+
+        <section className="focus-card section-card">
+          <h3>Normalization opportunities</h3>
+          <ul className="tag-list compact">
+            <li>
+              <span>Shape primitives</span>
+              <strong>{analysis?.opportunities.primitiveShapeCount ?? 0}</strong>
+            </li>
+            <li>
+              <span>Text elements</span>
+              <strong>{analysis?.opportunities.convertibleTextCount ?? 0}</strong>
+            </li>
+            <li>
+              <span>Blocked text</span>
+              <strong>{analysis?.opportunities.blockedTextCount ?? 0}</strong>
+            </li>
+            <li>
+              <span>Direct transforms</span>
+              <strong>{analysis?.opportunities.directTransformCount ?? 0}</strong>
+            </li>
+            <li>
+              <span>Container transforms</span>
+              <strong>{analysis?.opportunities.containerTransformCount ?? 0}</strong>
+            </li>
+          </ul>
+        </section>
+      </>
+    );
   }
 
   function renderInspectorContent() {
@@ -1656,178 +1780,6 @@ function App() {
               <p className="selection-copy">Select an element in the preview to inspect it here.</p>
             )}
           </section>
-        );
-      case 'readiness':
-        return (
-          <div className="inspector-stack tabbed-stack">
-            <section className="focus-card section-card">
-              <div className="readiness-header" data-fit-container>
-                <h3>Workflow scorecards</h3>
-                <span className="status-label">Profiles</span>
-              </div>
-              <div className="readiness-scorecards" data-fit-container data-fit-mode="children">
-                <article className="readiness-scorecard">
-                  <div className="readiness-header" data-fit-container>
-                    <div>
-                      <p className="scorecard-kicker">Geometry-safe</p>
-                      <strong>Geometry-safe export</strong>
-                    </div>
-                    <span className={`readiness-badge ${analysis?.workflowReadiness.geometrySafe.status ?? 'blocked'}`}>
-                      {analysis ? getReadinessLabel(analysis.workflowReadiness.geometrySafe.status) : 'Blocked'}
-                    </span>
-                  </div>
-                  <p className="readiness-score">{analysis?.workflowReadiness.geometrySafe.score ?? 0}</p>
-                  <p className="readiness-copy">{analysis?.workflowReadiness.geometrySafe.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
-                  <ul className="warning-list compact-readiness-list">
-                    {(analysis?.workflowReadiness.geometrySafe.strengths ?? []).map((item) => (
-                      <li key={`geometry-strength-${item}`} data-fit-container>
-                        <span className="risk-badge info">signal</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                    {(analysis?.workflowReadiness.geometrySafe.blockers ?? []).slice(0, 2).map((item) => (
-                      <li key={`geometry-blocker-${item}`} data-fit-container>
-                        <span className="risk-badge warning">blocked</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-
-                <article className="readiness-scorecard">
-                  <div className="readiness-header" data-fit-container>
-                    <div>
-                      <p className="scorecard-kicker">Runtime-preserving</p>
-                      <strong>Browser/runtime SVG</strong>
-                    </div>
-                    <span className={`readiness-badge ${analysis?.workflowReadiness.runtimeSvg.status ?? 'blocked'}`}>
-                      {analysis ? getReadinessLabel(analysis.workflowReadiness.runtimeSvg.status) : 'Blocked'}
-                    </span>
-                  </div>
-                  <p className="readiness-score">{analysis?.workflowReadiness.runtimeSvg.score ?? 0}</p>
-                  <p className="readiness-copy">{analysis?.workflowReadiness.runtimeSvg.summary ?? 'Load a valid SVG to inspect workflow readiness.'}</p>
-                  <ul className="warning-list compact-readiness-list">
-                    {(analysis?.workflowReadiness.runtimeSvg.strengths ?? []).map((item) => (
-                      <li key={`runtime-strength-${item}`} data-fit-container>
-                        <span className="risk-badge info">signal</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                    {(analysis?.workflowReadiness.runtimeSvg.autoFixes ?? []).slice(0, 2).map((item) => (
-                      <li key={`runtime-fix-${item}`} data-fit-container>
-                        <span className="risk-badge info">auto-fix</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                    {(analysis?.workflowReadiness.runtimeSvg.blockers ?? []).slice(0, 2).map((item) => (
-                      <li key={`runtime-blocker-${item}`} data-fit-container>
-                        <span className="risk-badge warning">blocked</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-              </div>
-            </section>
-
-            <section className="focus-card readiness-card section-card">
-              <div className="readiness-header" data-fit-container>
-                <h3>Export readiness</h3>
-                <span className={`readiness-badge ${analysis?.exportReadiness.status ?? 'blocked'}`}>
-                  {analysis ? getReadinessLabel(analysis.exportReadiness.status) : 'Blocked'}
-                </span>
-              </div>
-              <dl className="metrics-grid readiness-metrics compact-metrics" data-fit-container data-fit-mode="children">
-                <div>
-                  <dt>Auto-fixable</dt>
-                  <dd>{analysis?.exportReadiness.autoFixCount ?? 0}</dd>
-                </div>
-                <div>
-                  <dt>Blocked</dt>
-                  <dd>{analysis?.exportReadiness.blockerCount ?? 0}</dd>
-                </div>
-              </dl>
-              <p className="readiness-copy">
-                {analysis?.exportReadiness.status === 'ready'
-                  ? 'This SVG currently has no tracked blockers for the safe export pipeline.'
-                  : analysis?.exportReadiness.status === 'repairable'
-                    ? 'Run the safe repair pass to clear the remaining auto-fixable items.'
-                    : hasRuntimeDependencies
-                      ? 'This SVG still depends on runtime-only features such as media or timed animation. Keep a browser/runtime SVG export if you need that behavior, or simplify it before geometry-safe export.'
-                      : 'This SVG still has unresolved blockers that need manual editing or future repair support.'}
-              </p>
-              <ul className="warning-list readiness-list">
-                {analysis?.exportReadiness.autoFixes.map((item) => (
-                  <li key={`fix-${item}`} data-fit-container>
-                    <span className="risk-badge info">auto-fix</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-                {analysis?.exportReadiness.blockers.map((item) => (
-                  <li key={`block-${item}`} data-fit-container>
-                    <span className="risk-badge warning">blocked</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-                {analysis && analysis.exportReadiness.autoFixes.length === 0 && analysis.exportReadiness.blockers.length === 0 ? (
-                  <li data-fit-container>
-                    <span className="risk-badge info">clear</span>
-                    <span>No tracked export blockers remain.</span>
-                  </li>
-                ) : null}
-              </ul>
-            </section>
-
-            <section className="focus-card section-card">
-              <h3>Export guidance</h3>
-              <ul className="warning-list">
-                {(analysis?.runtimeFeatures.mediaElementCount ?? 0) > 0 ? (
-                  <li>
-                    <span className="risk-badge warning">runtime</span>
-                    <span>Keep a browser/runtime SVG profile if you need embedded media playback. Geometry-safe exports should remove or replace media elements first.</span>
-                  </li>
-                ) : null}
-                {(analysis?.runtimeFeatures.animationElementCount ?? 0) > 0 ? (
-                  <li>
-                    <span className="risk-badge info">motion</span>
-                    <span>Native SVG animation is preserved best in self-contained browser SVG output, not in flattened geometry exports.</span>
-                  </li>
-                ) : null}
-                {analysis && analysis.runtimeFeatures.mediaElementCount === 0 && analysis.runtimeFeatures.animationElementCount === 0 ? (
-                  <li>
-                    <span className="risk-badge info">profile</span>
-                    <span>This file does not currently depend on runtime media or animation features for export behavior.</span>
-                  </li>
-                ) : null}
-              </ul>
-            </section>
-
-            <section className="focus-card section-card">
-              <h3>Normalization opportunities</h3>
-              <ul className="tag-list compact">
-                <li>
-                  <span>Shape primitives</span>
-                  <strong>{analysis?.opportunities.primitiveShapeCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Text elements</span>
-                  <strong>{analysis?.opportunities.convertibleTextCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Blocked text</span>
-                  <strong>{analysis?.opportunities.blockedTextCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Direct transforms</span>
-                  <strong>{analysis?.opportunities.directTransformCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Container transforms</span>
-                  <strong>{analysis?.opportunities.containerTransformCount ?? 0}</strong>
-                </li>
-              </ul>
-            </section>
-          </div>
         );
       case 'warnings':
         return (
@@ -1890,6 +1842,7 @@ function App() {
       default:
         return (
           <div className="inspector-stack tabbed-stack">
+            {activeSection === 'repair' || activeSection === 'export' ? renderReadinessOverview() : null}
             <section className="focus-card metrics-card section-card">
               <h3>Document stats</h3>
               <dl className="metrics-grid compact-metrics" data-fit-container data-fit-mode="children">
@@ -2079,6 +2032,36 @@ function App() {
           }}>
             Load Sample
           </button>
+          <div className="preview-workflow-bar topbar-workflow-bar" role="toolbar" aria-label="Page actions">
+            <details className="preview-workflow-menu">
+              <summary className="preview-workflow-trigger">
+                <span className="preview-workflow-label">Download</span>
+                <span className="preview-workflow-caret" aria-hidden="true">+</span>
+              </summary>
+              <div className="preview-workflow-menu-list" role="group" aria-label="Download actions">
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('current'))}>
+                  Current
+                </button>
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('safe'))} disabled={!normalizedExport}>
+                  Geometry-safe
+                </button>
+              </div>
+            </details>
+            <details className="preview-workflow-menu">
+              <summary className="preview-workflow-trigger">
+                <span className="preview-workflow-label">Share</span>
+                <span className="preview-workflow-caret" aria-hidden="true">+</span>
+              </summary>
+              <div className="preview-workflow-menu-list" role="group" aria-label="Share actions">
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('current'))}>
+                  Current
+                </button>
+                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('safe'))} disabled={!normalizedExport}>
+                  Geometry-safe
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
       </header>
 
@@ -2152,51 +2135,6 @@ function App() {
                 Markup
               </button>
             </div>
-          </div>
-
-          <div className="preview-workflow-bar" role="toolbar" aria-label="Preview workspace actions">
-            <details className="preview-workflow-menu">
-              <summary className="preview-workflow-trigger">
-                <span className="preview-workflow-label">Intake</span>
-                <span className="preview-workflow-caret" aria-hidden="true">+</span>
-              </summary>
-              <div className="preview-workflow-menu-list" role="group" aria-label="Intake actions">
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => fileInputRef.current?.click())}>
-                  Open SVG
-                </button>
-                <button className="primary-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => loadSvgSource(sampleSvg, 'sample.svg'))}>
-                  Load sample
-                </button>
-              </div>
-            </details>
-            <details className="preview-workflow-menu">
-              <summary className="preview-workflow-trigger">
-                <span className="preview-workflow-label">Download</span>
-                <span className="preview-workflow-caret" aria-hidden="true">+</span>
-              </summary>
-              <div className="preview-workflow-menu-list" role="group" aria-label="Download actions">
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('current'))}>
-                  Download current
-                </button>
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('safe'))} disabled={!normalizedExport}>
-                  Download geometry-safe
-                </button>
-              </div>
-            </details>
-            <details className="preview-workflow-menu">
-              <summary className="preview-workflow-trigger">
-                <span className="preview-workflow-label">Share</span>
-                <span className="preview-workflow-caret" aria-hidden="true">+</span>
-              </summary>
-              <div className="preview-workflow-menu-list" role="group" aria-label="Share actions">
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('current'))}>
-                  Copy current
-                </button>
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('safe'))} disabled={!normalizedExport}>
-                  Copy geometry-safe
-                </button>
-              </div>
-            </details>
           </div>
 
           <div className="preview-toolbar" role="toolbar" aria-label="Preview navigation controls">
@@ -2283,11 +2221,9 @@ function App() {
             <p>
               {activeSection === 'file'
                 ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
-                : activeSection === 'inspect'
-                  ? 'Select elements in the preview to drive the inspection tabs and reveal node-level details. Drag to pan and use the preview controls or mouse wheel to zoom.'
-                  : activeSection === 'repair'
+                : activeSection === 'repair'
                     ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
-                    : 'Choose an export preset on the left and verify the remaining blockers in the readiness tab.'}
+                    : 'Choose an export preset on the left and verify the remaining blockers in the overview tab.'}
             </p>
           </div>
         </section>

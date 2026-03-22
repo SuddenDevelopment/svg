@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import * as opentype from 'opentype.js';
 import App from './App';
 import { EMPTY_SVG_TEMPLATE } from './lib/svg-source';
 
-function openWorkspaceSection(name: 'File' | 'Inspect' | 'Repair' | 'Export') {
+function openWorkspaceSection(name: 'File' | 'Repair' | 'Export') {
   fireEvent.click(screen.getByRole('button', { name }));
 }
 
@@ -78,8 +78,8 @@ describe('App', () => {
     expect(screen.getAllByText('sample.svg').length).toBeGreaterThan(0);
     expect(screen.getByText('Document stats')).toBeInTheDocument();
     expect(screen.getByText('Featured tags')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inspect' })).not.toBeInTheDocument();
 
-    openWorkspaceSection('Inspect');
     fireEvent.click(screen.getByRole('tab', { name: 'Warnings' }));
 
     expect(screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.')).toBeInTheDocument();
@@ -117,7 +117,6 @@ describe('App', () => {
       },
     });
 
-    openWorkspaceSection('Inspect');
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
 
     await waitFor(() => {
@@ -384,7 +383,6 @@ describe('App', () => {
   it('highlights risky preview nodes when hovering a risk entry', async () => {
     const { container } = render(<App />);
 
-    openWorkspaceSection('Inspect');
     fireEvent.click(screen.getByRole('tab', { name: 'Warnings' }));
 
     const riskEntry = screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.').closest('li');
@@ -420,7 +418,7 @@ describe('App', () => {
     expect(viewport).toHaveStyle({ transform: 'translate(0px, 0px) scale(1)' });
   });
 
-  it('groups intake, download, and share actions near the preview workspace', async () => {
+  it('groups page-level download and share actions in the top bar', async () => {
     const writeText = vi.fn(async () => undefined);
     const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 
@@ -432,14 +430,14 @@ describe('App', () => {
     try {
       render(<App />);
 
-      const workflowBar = screen.getByRole('toolbar', { name: 'Preview workspace actions' });
+      const workflowBar = screen.getByRole('toolbar', { name: 'Page actions' });
       expect(workflowBar).toBeInTheDocument();
-      expect(screen.getByText('Intake')).toBeInTheDocument();
+      expect(screen.queryByText('Upload')).not.toBeInTheDocument();
       expect(screen.getByText('Download')).toBeInTheDocument();
       expect(screen.getByText('Share')).toBeInTheDocument();
 
       fireEvent.click(screen.getByText('Download'));
-      fireEvent.click(screen.getByRole('button', { name: 'Download geometry-safe' }));
+      fireEvent.click(within(screen.getByRole('group', { name: 'Download actions' })).getByRole('button', { name: 'Geometry-safe' }));
       openWorkspaceSection('Export');
 
       await waitFor(() => {
@@ -450,19 +448,45 @@ describe('App', () => {
 
       openWorkspaceSection('File');
       fireEvent.click(screen.getByText('Share'));
-      fireEvent.click(screen.getByRole('button', { name: 'Copy current' }));
+  fireEvent.click(within(screen.getByRole('group', { name: 'Share actions' })).getByRole('button', { name: 'Current' }));
 
       openWorkspaceSection('Export');
 
       await waitFor(() => {
         expect(screen.getByText('Last copy')).toBeInTheDocument();
       });
-      expect(screen.getByText('Current')).toBeInTheDocument();
+      const copyReport = screen.getByText('Last copy').closest('.export-report');
+      expect(copyReport?.textContent).toContain('Current');
     } finally {
       if (originalClipboard) {
         Object.defineProperty(navigator, 'clipboard', originalClipboard);
       }
     }
+  });
+
+  it('keeps overview, warnings, and selection tabs available in the inspection panel for repair and export', async () => {
+    render(<App />);
+
+    openWorkspaceSection('Repair');
+
+    expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Warnings' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Selection' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('Workflow scorecards')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('Export');
+
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Warnings' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Selection' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Readiness' })).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('Export readiness')).toBeInTheDocument();
+    });
   });
 
   it('applies shape normalization from the repair panel', async () => {
