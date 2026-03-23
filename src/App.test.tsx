@@ -85,6 +85,53 @@ describe('App', () => {
     expect(screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.')).toBeInTheDocument();
   });
 
+  it('wires the inspection controls as accessible tabs with keyboard navigation', () => {
+    render(<App />);
+
+    const overviewTab = screen.getByRole('tab', { name: 'Overview' });
+    const warningsTab = screen.getByRole('tab', { name: 'Warnings' });
+    const selectionTab = screen.getByRole('tab', { name: 'Selection' });
+    const inspectorPanel = screen.getByRole('tabpanel', { name: 'Overview' });
+
+    expect(overviewTab).toHaveAttribute('aria-controls', inspectorPanel.id);
+    expect(warningsTab).toHaveAttribute('tabindex', '-1');
+    expect(inspectorPanel).toHaveAttribute('aria-labelledby', overviewTab.id);
+
+    overviewTab.focus();
+    fireEvent.keyDown(overviewTab, { key: 'ArrowRight' });
+
+    expect(warningsTab).toHaveFocus();
+    expect(warningsTab).toHaveAttribute('aria-selected', 'true');
+    expect(inspectorPanel).toHaveAttribute('aria-labelledby', warningsTab.id);
+
+    fireEvent.keyDown(warningsTab, { key: 'End' });
+
+    expect(selectionTab).toHaveFocus();
+    expect(selectionTab).toHaveAttribute('aria-selected', 'true');
+    expect(inspectorPanel).toHaveAttribute('aria-labelledby', selectionTab.id);
+  });
+
+  it('wires the preview mode switch as accessible tabs with keyboard navigation', () => {
+    render(<App />);
+
+    const previewTablist = screen.getByRole('tablist', { name: 'Preview modes' });
+    const previewTab = within(previewTablist).getByRole('tab', { name: 'Preview' });
+    const markupTab = within(previewTablist).getByRole('tab', { name: 'Markup' });
+    const previewPanel = screen.getByRole('tabpanel', { name: 'Preview' });
+
+    expect(previewTab).toHaveAttribute('aria-controls', previewPanel.id);
+    expect(markupTab).toHaveAttribute('tabindex', '-1');
+    expect(previewPanel).toHaveAttribute('aria-labelledby', previewTab.id);
+
+    previewTab.focus();
+    fireEvent.keyDown(previewTab, { key: 'ArrowRight' });
+
+    expect(markupTab).toHaveFocus();
+    expect(markupTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Markup' })).toBeInTheDocument();
+    expect(screen.getByText('sample.svg')).toBeInTheDocument();
+  });
+
   it('shows blocked export readiness details for text-based SVGs', async () => {
     render(<App />);
 
@@ -416,6 +463,29 @@ describe('App', () => {
 
     expect(screen.getByText('100%')).toBeInTheDocument();
     expect(viewport).toHaveStyle({ transform: 'translate(0px, 0px) scale(1)' });
+  });
+
+  it('wires the export preset selector as accessible tabs with keyboard navigation', async () => {
+    render(<App />);
+
+    openWorkspaceSection('Export');
+
+    const presetTablist = screen.getByRole('tablist', { name: 'Export presets' });
+    const safeTab = within(presetTablist).getByRole('tab', { name: /Geometry-safe/ });
+    const currentTab = within(presetTablist).getByRole('tab', { name: /Current/ });
+    const presetPanel = screen.getByRole('tabpanel', { name: /Geometry-safe/ });
+
+    expect(safeTab).toHaveAttribute('aria-controls', presetPanel.id);
+    expect(currentTab).toHaveAttribute('tabindex', '-1');
+    expect(presetPanel).toHaveAttribute('aria-labelledby', safeTab.id);
+
+    safeTab.focus();
+    fireEvent.keyDown(safeTab, { key: 'Home' });
+
+    expect(currentTab).toHaveFocus();
+    expect(currentTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: /Current/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download current SVG' })).toBeInTheDocument();
   });
 
   it('groups page-level download and share actions in the top bar', async () => {
@@ -862,7 +932,7 @@ describe('App', () => {
       });
 
       openWorkspaceSection('Export');
-      fireEvent.click(screen.getByRole('button', { name: /Browser\/runtime/ }));
+      fireEvent.click(screen.getByRole('tab', { name: /Browser\/runtime/ }));
       fireEvent.click(screen.getByRole('button', { name: 'Download Browser/runtime SVG' }));
 
       await waitFor(() => {
@@ -986,7 +1056,7 @@ describe('App', () => {
     try {
       render(<App />);
       openWorkspaceSection('Export');
-      fireEvent.click(screen.getByRole('button', { name: /Blender-friendly/ }));
+      fireEvent.click(screen.getByRole('tab', { name: /Blender-friendly/ }));
       fireEvent.click(screen.getByRole('button', { name: 'Download Blender-friendly SVG' }));
 
       await waitFor(() => {

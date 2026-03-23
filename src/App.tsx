@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useId, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
+import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { sampleSvg } from './lib/sample-svg';
 import { buildAnalysis, getChangedPreviewNodePaths } from './lib/svg-analysis';
 import type { Analysis } from './lib/svg-analysis';
@@ -223,6 +223,9 @@ function App() {
   const inputId = useId();
   const fontInputId = useId();
   const sourceId = useId();
+  const inspectorTabsId = useId();
+  const previewTabsId = useId();
+  const exportPresetTabsId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fontInputRef = useRef<HTMLInputElement | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
@@ -1054,6 +1057,149 @@ function App() {
     setInspectorTab('selection');
   }
 
+  function getInspectorTabButtonId(tab: InspectorTab) {
+    return `${inspectorTabsId}-${tab}-tab`;
+  }
+
+  function getInspectorTabPanelId() {
+    return `${inspectorTabsId}-panel`;
+  }
+
+  function focusInspectorTab(tab: InspectorTab) {
+    const tabButton = document.getElementById(getInspectorTabButtonId(tab));
+    if (tabButton instanceof HTMLButtonElement) {
+      tabButton.focus();
+    }
+  }
+
+  function handleInspectorTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentTab: InspectorTab) {
+    const currentIndex = availableInspectorTabs.indexOf(currentTab);
+    if (currentIndex === -1) {
+      return;
+    }
+
+    let nextTab: InspectorTab | null = null;
+
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        nextTab = availableInspectorTabs[(currentIndex + 1) % availableInspectorTabs.length];
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        nextTab = availableInspectorTabs[(currentIndex - 1 + availableInspectorTabs.length) % availableInspectorTabs.length];
+        break;
+      case 'Home':
+        nextTab = availableInspectorTabs[0];
+        break;
+      case 'End':
+        nextTab = availableInspectorTabs[availableInspectorTabs.length - 1];
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    setInspectorTab(nextTab);
+    focusInspectorTab(nextTab);
+  }
+
+  function getPreviewTabButtonId(tab: PreviewTab) {
+    return `${previewTabsId}-${tab}-tab`;
+  }
+
+  function getPreviewTabPanelId() {
+    return `${previewTabsId}-panel`;
+  }
+
+  function focusPreviewTab(tab: PreviewTab) {
+    const tabButton = document.getElementById(getPreviewTabButtonId(tab));
+    if (tabButton instanceof HTMLButtonElement) {
+      tabButton.focus();
+    }
+  }
+
+  function handlePreviewTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentTab: PreviewTab) {
+    const tabs: PreviewTab[] = ['preview', 'source'];
+    const currentIndex = tabs.indexOf(currentTab);
+    if (currentIndex === -1) {
+      return;
+    }
+
+    let nextTab: PreviewTab | null = null;
+
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        nextTab = tabs[(currentIndex + 1) % tabs.length];
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        nextTab = tabs[(currentIndex - 1 + tabs.length) % tabs.length];
+        break;
+      case 'Home':
+        nextTab = tabs[0];
+        break;
+      case 'End':
+        nextTab = tabs[tabs.length - 1];
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    setPreviewTab(nextTab);
+    focusPreviewTab(nextTab);
+  }
+
+  function getExportPresetTabButtonId(variant: ExportVariant) {
+    return `${exportPresetTabsId}-${variant}-tab`;
+  }
+
+  function getExportPresetPanelId() {
+    return `${exportPresetTabsId}-panel`;
+  }
+
+  function focusExportPresetTab(variant: ExportVariant) {
+    const tabButton = document.getElementById(getExportPresetTabButtonId(variant));
+    if (tabButton instanceof HTMLButtonElement) {
+      tabButton.focus();
+    }
+  }
+
+  function handleExportPresetKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentPreset: ExportVariant) {
+    const presets = exportPresetCards.map((preset) => preset.id);
+    const currentIndex = presets.indexOf(currentPreset);
+    if (currentIndex === -1) {
+      return;
+    }
+
+    let nextPreset: ExportVariant | null = null;
+
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        nextPreset = presets[(currentIndex + 1) % presets.length];
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        nextPreset = presets[(currentIndex - 1 + presets.length) % presets.length];
+        break;
+      case 'Home':
+        nextPreset = presets[0];
+        break;
+      case 'End':
+        nextPreset = presets[presets.length - 1];
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    setSelectedExportPreset(nextPreset);
+    focusExportPresetTab(nextPreset);
+  }
+
   function resolvePreviewNodeId(target: EventTarget | null, clientX: number, clientY: number) {
     const targetElement = target instanceof Element ? target : null;
     const directNodeId = targetElement?.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id');
@@ -1467,15 +1613,28 @@ function App() {
           {exportPresetCards.map((preset) => (
             <button
               key={preset.id}
+              id={getExportPresetTabButtonId(preset.id)}
               className={`export-preset ${selectedExportPreset === preset.id ? 'active' : ''}`}
               type="button"
+              role="tab"
+              tabIndex={selectedExportPreset === preset.id ? 0 : -1}
+              aria-selected={selectedExportPreset === preset.id}
+              aria-controls={getExportPresetPanelId()}
               onClick={() => setSelectedExportPreset(preset.id)}
+              onKeyDown={(event) => handleExportPresetKeyDown(event, preset.id)}
             >
               <strong>{preset.title}</strong>
               <span>{preset.description}</span>
             </button>
           ))}
         </div>
+        <div
+          id={getExportPresetPanelId()}
+          className="export-preset-panel"
+          role="tabpanel"
+          aria-labelledby={getExportPresetTabButtonId(selectedExportPreset)}
+          tabIndex={0}
+        >
         <div className="export-actions two-column-actions">
           <button className="ghost-button export-button" type="button" onClick={downloadCurrentSvg}>
             Download current SVG
@@ -1560,6 +1719,7 @@ function App() {
             </ul>
           </div>
         ) : null}
+        </div>
       </section>
     );
   }
@@ -2121,16 +2281,28 @@ function App() {
             </div>
             <div className="preview-tabs" role="tablist" aria-label="Preview modes">
               <button
+                id={getPreviewTabButtonId('preview')}
                 className={`preview-tab ${previewTab === 'preview' ? 'active' : ''}`}
                 type="button"
+                role="tab"
+                tabIndex={previewTab === 'preview' ? 0 : -1}
+                aria-selected={previewTab === 'preview'}
+                aria-controls={getPreviewTabPanelId()}
                 onClick={() => setPreviewTab('preview')}
+                onKeyDown={(event) => handlePreviewTabKeyDown(event, 'preview')}
               >
                 Preview
               </button>
               <button
+                id={getPreviewTabButtonId('source')}
                 className={`preview-tab ${previewTab === 'source' ? 'active' : ''}`}
                 type="button"
+                role="tab"
+                tabIndex={previewTab === 'source' ? 0 : -1}
+                aria-selected={previewTab === 'source'}
+                aria-controls={getPreviewTabPanelId()}
                 onClick={() => setPreviewTab('source')}
+                onKeyDown={(event) => handlePreviewTabKeyDown(event, 'source')}
               >
                 Markup
               </button>
@@ -2167,7 +2339,10 @@ function App() {
           </div>
 
           <div
+            id={getPreviewTabPanelId()}
             className={`preview-surface ${isDragging ? 'is-dragging' : ''}`}
+            role="tabpanel"
+            aria-labelledby={getPreviewTabButtonId(previewTab)}
             onDragEnter={(event) => {
               event.preventDefault();
               setIsDragging(true);
@@ -2252,18 +2427,30 @@ function App() {
                 {availableInspectorTabs.map((tab) => (
                   <button
                     key={tab}
-                    className={`preview-tab inspector-tab${inspectorTab === tab ? ' active' : ''}`}
+                    id={getInspectorTabButtonId(tab)}
+                    className={`inspector-tab${inspectorTab === tab ? ' active' : ''}`}
                     type="button"
                     role="tab"
+                    tabIndex={inspectorTab === tab ? 0 : -1}
                     aria-selected={inspectorTab === tab}
+                    aria-controls={getInspectorTabPanelId()}
                     onClick={() => setInspectorTab(tab)}
+                    onKeyDown={(event) => handleInspectorTabKeyDown(event, tab)}
                   >
                     {inspectorTabLabels[tab]}
                   </button>
                 ))}
               </div>
 
-              <div className="side-panel-body inspector-panel-body">{renderInspectorContent()}</div>
+              <div
+                id={getInspectorTabPanelId()}
+                className="side-panel-body inspector-panel-body"
+                role="tabpanel"
+                aria-labelledby={getInspectorTabButtonId(inspectorTab)}
+                tabIndex={0}
+              >
+                {renderInspectorContent()}
+              </div>
             </>
           ) : (
             <div className="collapsed-panel-label">Inspect</div>
