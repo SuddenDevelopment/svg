@@ -1,12 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as opentype from 'opentype.js';
 import App from './App';
 import { EMPTY_SVG_TEMPLATE } from './lib/svg-source';
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 function openWorkspaceSection(name: 'File' | 'Repair' | 'Export') {
   fireEvent.click(screen.getByRole('button', { name }));
+}
+
+function openSelectionTool(name: 'Style' | 'Animation' | 'Interaction') {
+  fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
+  fireEvent.click(screen.getByRole('tab', { name }));
 }
 
 function setElementSize(
@@ -130,6 +139,34 @@ describe('App', () => {
     expect(markupTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Markup' })).toBeInTheDocument();
     expect(screen.getByText('sample.svg')).toBeInTheDocument();
+  });
+
+  it('wires the selected element tools as accessible tabs with keyboard navigation', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
+
+    const toolTablist = screen.getByRole('tablist', { name: 'Selected element tools' });
+    const styleTab = within(toolTablist).getByRole('tab', { name: 'Style' });
+    const animationTab = within(toolTablist).getByRole('tab', { name: 'Animation' });
+    const interactionTab = within(toolTablist).getByRole('tab', { name: 'Interaction' });
+    const toolPanel = screen.getByRole('tabpanel', { name: 'Style' });
+
+    expect(styleTab).toHaveAttribute('aria-controls', toolPanel.id);
+    expect(animationTab).toHaveAttribute('tabindex', '-1');
+    expect(toolPanel).toHaveAttribute('aria-labelledby', styleTab.id);
+
+    styleTab.focus();
+    fireEvent.keyDown(styleTab, { key: 'ArrowRight' });
+
+    expect(animationTab).toHaveFocus();
+    expect(animationTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(animationTab, { key: 'End' });
+
+    expect(interactionTab).toHaveFocus();
+    expect(interactionTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Interaction' })).toBeInTheDocument();
   });
 
   it('shows blocked export readiness details for text-based SVGs', async () => {
@@ -425,6 +462,624 @@ describe('App', () => {
     } else {
       Reflect.deleteProperty(document, 'elementFromPoint');
     }
+  });
+
+  it('lets the selection inspector switch preview highlight presets', async () => {
+    const { container } = render(<App />);
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewText = container.querySelector('.svg-preview-frame svg text');
+    const previewFrame = container.querySelector('.svg-preview-frame');
+    expect(previewText).not.toBeNull();
+    expect(previewFrame).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewText),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 7,
+        clientX: 24,
+        clientY: 18,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 7,
+        clientX: 24,
+        clientY: 18,
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Selection appearance' })).toBeInTheDocument();
+      });
+
+      expect(previewFrame).toHaveAttribute('data-selection-style', 'studio');
+      expect(screen.getByRole('button', { name: /Studio/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByText('Animation target')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /Signal/ }));
+
+      expect(previewFrame).toHaveAttribute('data-selection-style', 'signal');
+      expect(screen.getByRole('button', { name: /Signal/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(JSON.parse(window.localStorage.getItem('svg-workbench.selection-appearance') ?? '{}')).toMatchObject({
+        preset: 'signal',
+      });
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('persists per-state selection highlight controls and removes hidden preview highlights', async () => {
+    const { container, unmount } = render(<App />);
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewText = container.querySelector('.svg-preview-frame svg text');
+    expect(previewText).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewText),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 8,
+        clientX: 24,
+        clientY: 18,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 8,
+        clientX: 24,
+        clientY: 18,
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Selection appearance' })).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'Selected node highlight intensity' }), {
+        target: { value: 'soft' },
+      });
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Selected node highlight visible' }));
+
+      await waitFor(() => {
+        expect(container.querySelector('[data-svg-node-selected="true"]')).toBeNull();
+      });
+
+      expect(screen.getByRole('combobox', { name: 'Selected node highlight intensity' })).toBeDisabled();
+
+      expect(JSON.parse(window.localStorage.getItem('svg-workbench.selection-appearance') ?? '{}')).toMatchObject({
+        settings: {
+          selected: {
+            visible: false,
+            intensity: 'soft',
+          },
+        },
+      });
+
+      unmount();
+
+      render(<App />);
+      fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
+
+      expect(screen.getByRole('checkbox', { name: 'Selected node highlight visible' })).not.toBeChecked();
+      expect(screen.getByRole('combobox', { name: 'Selected node highlight intensity' })).toHaveValue('soft');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('exports, resets, and imports selection appearance preset JSON', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Signal/ }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Risk hover highlight intensity' }), {
+      target: { value: 'strong' },
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Animation target highlight visible' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export preset JSON' }));
+
+    const presetJsonField = screen.getByRole('textbox', { name: 'Selection appearance preset JSON' }) as HTMLTextAreaElement;
+    expect(presetJsonField.value).toContain('"preset": "signal"');
+    expect(presetJsonField.value).toContain('"targeted"');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset defaults' }));
+
+    expect(screen.getByRole('button', { name: /Studio/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('checkbox', { name: 'Animation target highlight visible' })).toBeChecked();
+
+    fireEvent.change(presetJsonField, {
+      target: {
+        value: JSON.stringify({
+          preset: 'blueprint',
+          settings: {
+            selected: { visible: true, intensity: 'soft' },
+            hovered: { visible: true, intensity: 'strong' },
+            changed: { visible: false, intensity: 'medium' },
+            targeted: { visible: false, intensity: 'soft' },
+          },
+        }, null, 2),
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import preset JSON' }));
+
+    expect(screen.getByRole('button', { name: /Blueprint/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('checkbox', { name: 'Recent repair highlight visible' })).not.toBeChecked();
+    expect(screen.getByRole('combobox', { name: 'Risk hover highlight intensity' })).toHaveValue('strong');
+    expect(JSON.parse(window.localStorage.getItem('svg-workbench.selection-appearance') ?? '{}')).toMatchObject({
+      preset: 'blueprint',
+      settings: {
+        changed: { visible: false, intensity: 'medium' },
+        targeted: { visible: false, intensity: 'soft' },
+      },
+    });
+  });
+
+  it('supports preview multi-select while keeping the last clicked node inspected', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /><circle cx="30" cy="30" r="8" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    const previewCircle = container.querySelector('.svg-preview-frame svg circle');
+    expect(previewRect).not.toBeNull();
+    expect(previewCircle).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 11,
+        clientX: 20,
+        clientY: 20,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 11,
+        clientX: 20,
+        clientY: 20,
+      });
+
+      await waitFor(() => {
+        expect(container.querySelectorAll('[data-svg-node-selected="true"]').length).toBe(1);
+      });
+
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewCircle),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 12,
+        clientX: 32,
+        clientY: 32,
+        shiftKey: true,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 12,
+        clientX: 32,
+        clientY: 32,
+        shiftKey: true,
+      });
+
+      await waitFor(() => {
+        expect(container.querySelectorAll('[data-svg-node-selected="true"]').length).toBe(2);
+      });
+
+      expect(screen.getByText('circle', { selector: '.selection-tag' })).toBeInTheDocument();
+      expect(screen.getByText('2 preview elements are selected. The inspector is showing the most recently inspected element.')).toBeInTheDocument();
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('lets the selection animation tool target multiple preview elements and writes animation markup into the source', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /><circle cx="30" cy="30" r="8" /></svg>',
+      },
+    });
+
+    openSelectionTool('Animation');
+
+    await waitFor(() => {
+      expect(screen.getByText('Selection targets')).toBeInTheDocument();
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    const previewCircle = container.querySelector('.svg-preview-frame svg circle');
+    expect(previewRect).not.toBeNull();
+    expect(previewCircle).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 11,
+        clientX: 20,
+        clientY: 20,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 11,
+        clientX: 20,
+        clientY: 20,
+      });
+
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewCircle),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 12,
+        clientX: 40,
+        clientY: 40,
+        shiftKey: true,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 12,
+        clientX: 40,
+        clientY: 40,
+        shiftKey: true,
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('2 selected targets')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 2 targets' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied fade in to 2 targets/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value).toContain('data-svg-workbench-animation="true"');
+      expect(sourceEditor.value.match(/data-svg-workbench-animation="true"/g)?.length).toBe(2);
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('shows selected-element animation summaries in the inspector after authoring motion', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>',
+      },
+    });
+
+    openSelectionTool('Animation');
+
+    await waitFor(() => {
+      expect(screen.getByText('Selection targets')).toBeInTheDocument();
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, {
+        button: 0,
+        pointerId: 21,
+        clientX: 20,
+        clientY: 20,
+      });
+      fireEvent.pointerUp(previewSurface, {
+        button: 0,
+        pointerId: 21,
+        clientX: 20,
+        clientY: 20,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Orbit/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Animations on this element')).toBeInTheDocument();
+      });
+
+      const animationBlock = screen.getByText('Animations on this element').closest('.selection-animations-block');
+      expect(animationBlock?.textContent).toContain('Orbit');
+      expect(screen.getByText('workbench')).toBeInTheDocument();
+      expect(animationBlock?.textContent).toContain('motion path');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('loads native animation settings into the editor and can replace native animation nodes', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12"><animate attributeName="opacity" values="1;0;1" dur="0.6s" begin="click+0.2s" repeatCount="indefinite" /></rect></svg>',
+      },
+    });
+
+    openSelectionTool('Animation');
+
+    await waitFor(() => {
+      expect(screen.getByText('Selection targets')).toBeInTheDocument();
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 31, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 31, clientX: 20, clientY: 20 });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load selected animation' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Loaded the selected element animation into the editor for migration or reapply.')).toBeInTheDocument();
+      });
+
+      expect((screen.getByLabelText('Duration (s)') as HTMLInputElement).value).toBe('0.6');
+      expect((screen.getByLabelText('Start when') as HTMLSelectElement).value).toBe('click');
+      expect((screen.getByLabelText('Replace mode') as HTMLSelectElement).value).toBe('all');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied blink to 1 target/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value.match(/<animate/g)?.length).toBe(1);
+      expect(sourceEditor.value).toContain('data-svg-workbench-animation="true"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('applies interaction fields to the selected preview element', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><a href="#start"><rect width="12" height="12" /></a></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewAnchor = container.querySelector('.svg-preview-frame svg a');
+    expect(previewAnchor).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewAnchor),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 41, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 41, clientX: 20, clientY: 20 });
+
+      openSelectionTool('Interaction');
+
+      fireEvent.change(screen.getByLabelText('Accessible label'), {
+        target: { value: 'Open details' },
+      });
+      fireEvent.change(screen.getByLabelText('Tooltip text'), {
+        target: { value: 'Open the details panel' },
+      });
+      fireEvent.change(screen.getByLabelText('Hover behavior'), {
+        target: { value: 'lift' },
+      });
+      fireEvent.change(screen.getByLabelText('Focus behavior'), {
+        target: { value: 'ring' },
+      });
+      fireEvent.change(screen.getByLabelText('Pointer events'), {
+        target: { value: 'bounding-box' },
+      });
+      fireEvent.change(screen.getByLabelText('Cursor'), {
+        target: { value: 'pointer' },
+      });
+      fireEvent.change(screen.getByLabelText('Link href'), {
+        target: { value: 'https://example.com/details' },
+      });
+      fireEvent.change(screen.getByLabelText('Link target'), {
+        target: { value: '_blank' },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to 1 selected element' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied interaction fields to 1 selected element/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value).toContain('aria-label="Open details"');
+      expect(sourceEditor.value).toContain('data-svg-workbench-interaction="true"');
+      expect(sourceEditor.value).toContain('class="svgwb-hover-lift svgwb-focus-ring"');
+      expect(sourceEditor.value).toContain('<title data-svg-workbench-tooltip="true">Open the details panel</title>');
+      expect(sourceEditor.value).toContain('pointer-events="bounding-box"');
+      expect(sourceEditor.value).toContain('cursor="pointer"');
+      expect(sourceEditor.value).toContain('href="https://example.com/details"');
+      expect(sourceEditor.value).toContain('target="_blank"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('loads a richer interaction preset into the editor before applying it', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 42, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 42, clientX: 20, clientY: 20 });
+
+      openSelectionTool('Interaction');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focusable hotspot' }));
+
+      expect(screen.getByLabelText('Tab index')).toHaveValue('0');
+      expect(screen.getByLabelText('Focusable')).toHaveValue('true');
+      expect(screen.getByLabelText('Pointer events')).toHaveValue('bounding-box');
+      expect(screen.getByLabelText('Cursor')).toHaveValue('pointer');
+      expect(screen.getByLabelText('Hover behavior')).toHaveValue('glow');
+      expect(screen.getByLabelText('Focus behavior')).toHaveValue('ring');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to 1 selected element' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied interaction fields to 1 selected element/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value).toContain('tabindex="0"');
+      expect(sourceEditor.value).toContain('focusable="true"');
+      expect(sourceEditor.value).toContain('pointer-events="bounding-box"');
+      expect(sourceEditor.value).toContain('cursor="pointer"');
+      expect(sourceEditor.value).toContain('class="svgwb-hover-glow svgwb-focus-ring"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('controls preview playback transport and renders a scrubber', async () => {
+    const { container } = render(<App />);
+
+    const previewSvg = container.querySelector('.svg-preview-frame svg') as SVGSVGElement;
+    const pauseAnimations = vi.fn();
+    const unpauseAnimations = vi.fn();
+    const setCurrentTime = vi.fn();
+    const getCurrentTime = vi.fn(() => 1.4);
+
+    Object.assign(previewSvg, {
+      pauseAnimations,
+      unpauseAnimations,
+      setCurrentTime,
+      getCurrentTime,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(pauseAnimations).toHaveBeenCalled();
+
+    expect(screen.getByRole('slider', { name: 'Preview timeline' })).toBeEnabled();
+
+    const playButton = screen.getByRole('button', { name: 'Play' });
+    await waitFor(() => {
+      expect(playButton).toBeEnabled();
+    });
+    fireEvent.click(playButton);
+
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeEnabled();
   });
 
   it('highlights risky preview nodes when hovering a risk entry', async () => {

@@ -99,6 +99,7 @@
 - [ ] Add split view and onion-skin diff view.
 - [ ] Support click-to-select in preview and sync that selection to the layer tree and inspector.
 - [ ] Support hover highlight for risky nodes and changed nodes.
+- [ ] Extend configurable selection highlight themes into full layer-tree selection, shareable preset workflows, and richer multi-select editing actions.
 - [ ] Add live re-render after every tool change with debounced updates.
 - [ ] Add pan, zoom, fit, reset, pixel-grid toggle, transparent-background toggle, and checkerboard backdrop.
 - [ ] Use browser-native SVG rendering for instant feedback.

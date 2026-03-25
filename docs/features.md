@@ -19,6 +19,9 @@ Prioritized roadmap for the current product direction.
 
 ### Preview And Core UX
 
+- Extend selection appearance to future multi-select and layer-tree workflows without splitting preview styling into separate systems.
+- Add richer share/export workflows for selection appearance presets beyond the current in-panel JSON tooling.
+
 
 ### Export And Derived Outputs
 
@@ -112,6 +115,10 @@ Prioritized roadmap for the current product direction.
 - Grouped upload, download, and share actions near the preview workspace.
 - Click an element in the preview to inspect it.
 - Highlight the selected SVG node in the preview.
+- Selection appearance presets for selected, hovered, changed, and animation-targeted preview states.
+- Per-state selection appearance controls for visibility and intensity, persisted in local browser storage.
+- Reset defaults plus in-panel JSON import/export for selection appearance presets.
+- Preview multi-select groundwork that keeps the last clicked element in the inspector while preserving multiple selected highlights.
 
 ### Inspection
 

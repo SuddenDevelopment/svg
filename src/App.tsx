@@ -1,8 +1,39 @@
 import { useDeferredValue, useEffect, useId, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
+import type { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { sampleSvg } from './lib/sample-svg';
+import {
+  animationPresets,
+  applyAnimationDraftsToSource,
+  createAnimationDraft,
+  describeAnimationDraft,
+  getAnimationPresetDefinition,
+  inferAnimationDraftForPath,
+  listAnimationsForPath,
+  removeWorkbenchAnimationsFromSource,
+} from './lib/svg-animation';
+import {
+  applyInteractionBehaviorPreset,
+  applyInteractionDraftToSource,
+  createInteractionDraft,
+  inferInteractionDraftForPath,
+  interactionBehaviorPresets,
+  inspectInteractionForPath,
+  interactionFocusPresets,
+  interactionHoverPresets,
+  type InteractionBehaviorPresetId,
+  isAnchorLikeNode,
+} from './lib/svg-interaction';
 import { buildAnalysis, getChangedPreviewNodePaths } from './lib/svg-analysis';
 import type { Analysis } from './lib/svg-analysis';
+import type {
+  AnimationDraft,
+  AnimationEasing,
+  AnimationMotionDirection,
+  AnimationPresetId,
+  AnimationReplaceMode,
+  AnimationRotateMode,
+  AnimationStartMode,
+} from './lib/svg-animation';
 import {
   buildExportFileName,
   buildPngExportFileName,
@@ -40,6 +71,7 @@ import {
 type PreviewTab = 'preview' | 'source';
 type WorkspaceSection = 'file' | 'repair' | 'export';
 type InspectorTab = 'overview' | 'selection' | 'warnings';
+type SelectionFacet = 'style' | 'animate' | 'interact';
 
 type ExportReport = {
   action: 'download' | 'copy';
@@ -61,7 +93,20 @@ type SourceSelection = {
   end: number;
 };
 
-type PrimaryNavId = WorkspaceSection | 'style' | 'animate' | 'interact';
+type SelectionAppearancePresetId = 'studio' | 'signal' | 'blueprint';
+type SelectionAppearanceStateId = 'selected' | 'hovered' | 'changed' | 'targeted';
+type SelectionAppearanceIntensity = 'soft' | 'medium' | 'strong';
+
+type SelectionAppearanceStateSettings = {
+  visible: boolean;
+  intensity: SelectionAppearanceIntensity;
+};
+
+type SelectionAppearanceSettings = Record<SelectionAppearanceStateId, SelectionAppearanceStateSettings>;
+type SelectionAppearanceSnapshot = {
+  preset: SelectionAppearancePresetId;
+  settings: SelectionAppearanceSettings;
+};
 
 const exportPresetCards: Array<{ id: ExportVariant; title: string; description: string }> = [
   {
@@ -87,46 +132,24 @@ const exportPresetCards: Array<{ id: ExportVariant; title: string; description: 
 ];
 
 const primaryNavItems: Array<{
-  id: PrimaryNavId;
+  id: WorkspaceSection;
   label: string;
   shortLabel: string;
-  enabled: boolean;
 }> = [
   {
     id: 'file',
     label: 'File',
     shortLabel: 'Fi',
-    enabled: true,
   },
   {
     id: 'repair',
     label: 'Repair',
     shortLabel: 'Re',
-    enabled: true,
-  },
-  {
-    id: 'style',
-    label: 'Style',
-    shortLabel: 'St',
-    enabled: false,
-  },
-  {
-    id: 'animate',
-    label: 'Animate',
-    shortLabel: 'An',
-    enabled: false,
-  },
-  {
-    id: 'interact',
-    label: 'Interact',
-    shortLabel: 'Ix',
-    enabled: false,
   },
   {
     id: 'export',
     label: 'Export',
     shortLabel: 'Ex',
-    enabled: true,
   },
 ];
 
@@ -143,11 +166,211 @@ const defaultInspectorTabBySection: Record<WorkspaceSection, InspectorTab> = {
   export: 'overview',
 };
 
+const selectionFacetLabels: Record<SelectionFacet, string> = {
+  style: 'Style',
+  animate: 'Animation',
+  interact: 'Interaction',
+};
+
 const inspectorTabLabels: Record<InspectorTab, string> = {
   overview: 'Overview',
   selection: 'Selection',
   warnings: 'Warnings',
 };
+
+const SELECTION_APPEARANCE_STORAGE_KEY = 'svg-workbench.selection-appearance';
+const selectionAppearanceStateIds: SelectionAppearanceStateId[] = ['selected', 'hovered', 'changed', 'targeted'];
+const selectionAppearanceIntensityOptions: SelectionAppearanceIntensity[] = ['soft', 'medium', 'strong'];
+const selectionAppearanceShadowScale: Record<SelectionAppearanceIntensity, { blur: number; alpha: number }> = {
+  soft: { blur: 5, alpha: 0.48 },
+  medium: { blur: 9, alpha: 0.82 },
+  strong: { blur: 13, alpha: 0.96 },
+};
+
+const selectionAppearancePresets: Array<{
+  id: SelectionAppearancePresetId;
+  label: string;
+  description: string;
+  palette: {
+    selected: string;
+    hovered: string;
+    changed: string;
+    targeted: string;
+  };
+}> = [
+  {
+    id: 'studio',
+    label: 'Studio',
+    description: 'Warm focus colors that match the current workbench preview.',
+    palette: {
+      selected: '#ff8a3d',
+      hovered: '#1f7a8c',
+      changed: '#ffb15d',
+      targeted: '#0b6e4f',
+    },
+  },
+  {
+    id: 'signal',
+    label: 'Signal',
+    description: 'Punchy red and gold highlights for dense or low-contrast artboards.',
+    palette: {
+      selected: '#d1495b',
+      hovered: '#edae49',
+      changed: '#f79256',
+      targeted: '#00798c',
+    },
+  },
+  {
+    id: 'blueprint',
+    label: 'Blueprint',
+    description: 'Cool cyan and blue cues that read cleanly on light technical artwork.',
+    palette: {
+      selected: '#2563eb',
+      hovered: '#06b6d4',
+      changed: '#8b5cf6',
+      targeted: '#0f766e',
+    },
+  },
+];
+
+const selectionAppearanceLegend: Array<{
+  id: SelectionAppearanceStateId;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: 'selected',
+    label: 'Selected node',
+    description: 'The actively inspected element.',
+  },
+  {
+    id: 'hovered',
+    label: 'Risk hover',
+    description: 'Nodes spotlighted from warnings or related lists.',
+  },
+  {
+    id: 'changed',
+    label: 'Recent repair',
+    description: 'Elements affected by the latest cleanup action.',
+  },
+  {
+    id: 'targeted',
+    label: 'Animation target',
+    description: 'Nodes included in the current animation target set.',
+  },
+];
+
+function createDefaultSelectionAppearanceSettings(): SelectionAppearanceSettings {
+  return {
+    selected: { visible: true, intensity: 'strong' },
+    hovered: { visible: true, intensity: 'medium' },
+    changed: { visible: true, intensity: 'strong' },
+    targeted: { visible: true, intensity: 'medium' },
+  };
+}
+
+function createDefaultSelectionAppearanceSnapshot(): SelectionAppearanceSnapshot {
+  return {
+    preset: 'studio',
+    settings: createDefaultSelectionAppearanceSettings(),
+  };
+}
+
+function isSelectionAppearancePresetId(value: unknown): value is SelectionAppearancePresetId {
+  return selectionAppearancePresets.some((preset) => preset.id === value);
+}
+
+function isSelectionAppearanceIntensity(value: unknown): value is SelectionAppearanceIntensity {
+  return selectionAppearanceIntensityOptions.includes(value as SelectionAppearanceIntensity);
+}
+
+function normalizeSelectionAppearanceSettings(value: unknown): SelectionAppearanceSettings {
+  const defaults = createDefaultSelectionAppearanceSettings();
+  if (!value || typeof value !== 'object') {
+    return defaults;
+  }
+
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(selectionAppearanceStateIds.map((stateId) => {
+    const stateValue = record[stateId];
+    const stateDefaults = defaults[stateId];
+    if (!stateValue || typeof stateValue !== 'object') {
+      return [stateId, stateDefaults];
+    }
+
+    const stateRecord = stateValue as Record<string, unknown>;
+    return [
+      stateId,
+      {
+        visible: typeof stateRecord.visible === 'boolean' ? stateRecord.visible : stateDefaults.visible,
+        intensity: isSelectionAppearanceIntensity(stateRecord.intensity) ? stateRecord.intensity : stateDefaults.intensity,
+      },
+    ];
+  })) as SelectionAppearanceSettings;
+}
+
+function parseSelectionAppearanceSnapshot(value: unknown): SelectionAppearanceSnapshot {
+  const fallback = createDefaultSelectionAppearanceSnapshot();
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    preset: isSelectionAppearancePresetId(record.preset) ? record.preset : fallback.preset,
+    settings: normalizeSelectionAppearanceSettings(record.settings),
+  };
+}
+
+function readStoredSelectionAppearance() {
+  const fallback = createDefaultSelectionAppearanceSnapshot();
+
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SELECTION_APPEARANCE_STORAGE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+
+    return parseSelectionAppearanceSnapshot(JSON.parse(raw));
+  } catch {
+    return fallback;
+  }
+}
+
+function hexToRgbChannels(value: string) {
+  const normalized = value.replace('#', '');
+  const expanded = normalized.length === 3
+    ? normalized.split('').map((character) => `${character}${character}`).join('')
+    : normalized;
+
+  const red = Number.parseInt(expanded.slice(0, 2), 16);
+  const green = Number.parseInt(expanded.slice(2, 4), 16);
+  const blue = Number.parseInt(expanded.slice(4, 6), 16);
+
+  return `${red}, ${green}, ${blue}`;
+}
+
+function buildSelectionAppearanceStyle(
+  preset: (typeof selectionAppearancePresets)[number],
+  settings: SelectionAppearanceSettings,
+) {
+  const style: Record<string, string> = {};
+
+  selectionAppearanceStateIds.forEach((stateId) => {
+    const intensity = selectionAppearanceShadowScale[settings[stateId].intensity];
+    const rgbChannels = hexToRgbChannels(preset.palette[stateId]);
+
+    style[`--preview-selection-${stateId}-shadow`] = `0 0 ${intensity.blur}px rgba(${rgbChannels}, ${settings[stateId].visible ? intensity.alpha : 0})`;
+    style[`--selection-legend-${stateId}`] = preset.palette[stateId];
+    style[`--selection-legend-${stateId}-opacity`] = settings[stateId].visible ? '1' : '0.28';
+  });
+
+  return style as CSSProperties;
+}
 
 const DEFAULT_PREVIEW_VIEWPORT: PreviewViewport = {
   scale: 1,
@@ -162,6 +385,30 @@ const PREVIEW_PAN_STEP = 36;
 
 function clampPreviewScale(scale: number) {
   return Math.min(PREVIEW_MAX_SCALE, Math.max(PREVIEW_MIN_SCALE, Number(scale.toFixed(2))));
+}
+
+function getPreviewMotionVector(direction: AnimationMotionDirection, distance: number) {
+  const safeDistance = Math.max(0, distance);
+  const diagonal = Number((safeDistance / Math.sqrt(2)).toFixed(2));
+
+  switch (direction) {
+    case 'up':
+      return { x: 0, y: -safeDistance };
+    case 'down':
+      return { x: 0, y: safeDistance };
+    case 'left':
+      return { x: -safeDistance, y: 0 };
+    case 'right':
+      return { x: safeDistance, y: 0 };
+    case 'up-left':
+      return { x: -diagonal, y: -diagonal };
+    case 'up-right':
+      return { x: diagonal, y: -diagonal };
+    case 'down-left':
+      return { x: -diagonal, y: diagonal };
+    case 'down-right':
+      return { x: diagonal, y: diagonal };
+  }
 }
 
 function getSourceMetrics(source: string, selection: SourceSelection) {
@@ -224,12 +471,14 @@ function App() {
   const fontInputId = useId();
   const sourceId = useId();
   const inspectorTabsId = useId();
+  const selectionFacetTabsId = useId();
   const previewTabsId = useId();
   const exportPresetTabsId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fontInputRef = useRef<HTMLInputElement | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const inspectorPanelRef = useRef<HTMLElement | null>(null);
+  const previewTimelineIntervalRef = useRef<number | null>(null);
   const previewPointerRef = useRef<{
     pointerId: number;
     lastX: number;
@@ -237,6 +486,11 @@ function App() {
     distance: number;
   } | null>(null);
   const suppressPreviewClickRef = useRef(false);
+  const initialSelectionAppearanceRef = useRef<ReturnType<typeof readStoredSelectionAppearance> | null>(null);
+
+  if (initialSelectionAppearanceRef.current === null) {
+    initialSelectionAppearanceRef.current = readStoredSelectionAppearance();
+  }
 
   const [source, setSource] = useState(sampleSvg);
   const [fileName, setFileName] = useState('sample.svg');
@@ -244,11 +498,29 @@ function App() {
   const [previewViewport, setPreviewViewport] = useState<PreviewViewport>(DEFAULT_PREVIEW_VIEWPORT);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedPreviewNodeIds, setSelectedPreviewNodeIds] = useState<string[]>([]);
+  const [activeAnimationTargetPath, setActiveAnimationTargetPath] = useState<string | null>(null);
+  const [animationDraft, setAnimationDraft] = useState<AnimationDraft>(() => createAnimationDraft('fade-in'));
+  const [targetAnimationOverrides, setTargetAnimationOverrides] = useState<Record<string, Partial<AnimationDraft>>>({});
+  const [animationReplaceMode, setAnimationReplaceMode] = useState<AnimationReplaceMode>('workbench');
+  const [animationMessage, setAnimationMessage] = useState<string | null>(null);
+  const [interactionDraft, setInteractionDraft] = useState(() => createInteractionDraft());
+  const [interactionMessage, setInteractionMessage] = useState<string | null>(null);
+  const [previewTimelineSeconds, setPreviewTimelineSeconds] = useState(0);
+  const [isPreviewTimelinePlaying, setIsPreviewTimelinePlaying] = useState(true);
   const [hoveredPreviewNodeIds, setHoveredPreviewNodeIds] = useState<string[]>([]);
   const [recentChangePaths, setRecentChangePaths] = useState<string[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isPanningPreview, setIsPanningPreview] = useState(false);
+  const [selectionAppearancePreset, setSelectionAppearancePreset] = useState<SelectionAppearancePresetId>(
+    () => initialSelectionAppearanceRef.current?.preset ?? 'studio',
+  );
+  const [selectionAppearanceSettings, setSelectionAppearanceSettings] = useState<SelectionAppearanceSettings>(
+    () => initialSelectionAppearanceRef.current?.settings ?? createDefaultSelectionAppearanceSettings(),
+  );
+  const [selectionAppearanceTransferText, setSelectionAppearanceTransferText] = useState('');
+  const [selectionAppearanceMessage, setSelectionAppearanceMessage] = useState<string | null>(null);
   const [repairMessage, setRepairMessage] = useState<string | null>(null);
   const [sourceActionMessage, setSourceActionMessage] = useState<string | null>(null);
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>({ start: 0, end: 0 });
@@ -258,6 +530,7 @@ function App() {
   const [fontMappings, setFontMappings] = useState<FontMapping>({});
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('file');
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
+  const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
   const [isRightCollapsed, setIsRightCollapsed] = useState(false);
   const deferredSource = useDeferredValue(source);
@@ -284,6 +557,17 @@ function App() {
   }, [parseError]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(SELECTION_APPEARANCE_STORAGE_KEY, JSON.stringify({
+        preset: selectionAppearancePreset,
+        settings: selectionAppearanceSettings,
+      }));
+    } catch {
+      return;
+    }
+  }, [selectionAppearancePreset, selectionAppearanceSettings]);
+
+  useEffect(() => {
     setSelectedNodeId((current) => {
       if (!analysis) {
         return null;
@@ -296,6 +580,81 @@ function App() {
       return analysis.rootNodeId;
     });
   }, [analysis]);
+
+  useEffect(() => {
+    if (!analysis) {
+      setSelectedPreviewNodeIds([]);
+      return;
+    }
+
+    const validIds = new Set(Object.keys(analysis.nodesById));
+    setSelectedPreviewNodeIds((current) => {
+      const next = current.filter((nodeId) => validIds.has(nodeId));
+      if (next.length > 0) {
+        return next;
+      }
+
+      return selectedNodeId && validIds.has(selectedNodeId) ? [selectedNodeId] : [];
+    });
+  }, [analysis, selectedNodeId]);
+
+  useEffect(() => {
+    if (!analysis) {
+      setActiveAnimationTargetPath(null);
+      setTargetAnimationOverrides({});
+      return;
+    }
+
+    const validPaths = new Set(Object.values(analysis.nodesById).map((node) => node.path));
+    setTargetAnimationOverrides((current) => Object.fromEntries(Object.entries(current).filter(([path]) => validPaths.has(path))));
+    setActiveAnimationTargetPath((current) => (current && validPaths.has(current) ? current : null));
+  }, [analysis]);
+
+  useEffect(() => {
+    setPreviewTimelineSeconds(0);
+    setIsPreviewTimelinePlaying(true);
+
+    const previewSvg = previewFrameRef.current?.querySelector('svg') as SVGSVGElement | null;
+    if (!previewSvg) {
+      return;
+    }
+
+    const timelineSvg = previewSvg as SVGSVGElement & {
+      setCurrentTime?: (seconds: number) => void;
+      unpauseAnimations?: () => void;
+    };
+
+    timelineSvg.setCurrentTime?.(0);
+    timelineSvg.unpauseAnimations?.();
+  }, [analysis?.previewMarkup, previewTab]);
+
+  useEffect(() => {
+    if (previewTimelineIntervalRef.current !== null) {
+      window.clearInterval(previewTimelineIntervalRef.current);
+      previewTimelineIntervalRef.current = null;
+    }
+
+    if (!isPreviewTimelinePlaying || previewTab !== 'preview') {
+      return;
+    }
+
+    previewTimelineIntervalRef.current = window.setInterval(() => {
+      const previewSvg = previewFrameRef.current?.querySelector('svg') as SVGSVGElement | null;
+      const timelineSvg = previewSvg as (SVGSVGElement & { getCurrentTime?: () => number }) | null;
+      if (!timelineSvg?.getCurrentTime) {
+        return;
+      }
+
+      setPreviewTimelineSeconds(Number(timelineSvg.getCurrentTime().toFixed(2)));
+    }, 120);
+
+    return () => {
+      if (previewTimelineIntervalRef.current !== null) {
+        window.clearInterval(previewTimelineIntervalRef.current);
+        previewTimelineIntervalRef.current = null;
+      }
+    };
+  }, [isPreviewTimelinePlaying, previewTab]);
 
   useEffect(() => {
     if (isRightCollapsed) {
@@ -318,6 +677,13 @@ function App() {
       return;
     }
 
+    const targetPaths = analysis && selectionFacet === 'animate'
+      ? Array.from(new Set(selectedPreviewNodeIds
+        .filter((nodeId) => nodeId !== analysis.rootNodeId)
+        .map((nodeId) => analysis.nodesById[nodeId]?.path)
+        .filter((path): path is string => Boolean(path))))
+      : [];
+
     container.querySelectorAll('[data-svg-node-selected="true"]').forEach((node) => {
       node.removeAttribute('data-svg-node-selected');
     });
@@ -327,32 +693,51 @@ function App() {
     container.querySelectorAll('[data-svg-node-changed="true"]').forEach((node) => {
       node.removeAttribute('data-svg-node-changed');
     });
-
-    hoveredPreviewNodeIds.forEach((nodeId) => {
-      const hoveredNode = container.querySelector(`[data-svg-node-id="${nodeId}"]`);
-      if (hoveredNode) {
-        hoveredNode.setAttribute('data-svg-node-hovered', 'true');
-      }
+    container.querySelectorAll('[data-svg-node-targeted="true"]').forEach((node) => {
+      node.removeAttribute('data-svg-node-targeted');
     });
+
+    if (selectionAppearanceSettings.hovered.visible) {
+      hoveredPreviewNodeIds.forEach((nodeId) => {
+        const hoveredNode = container.querySelector(`[data-svg-node-id="${nodeId}"]`);
+        if (hoveredNode) {
+          hoveredNode.setAttribute('data-svg-node-hovered', 'true');
+        }
+      });
+    }
 
     const changedNodes = analysis
       ? Object.values(analysis.nodesById).filter((node) => recentChangePaths.includes(node.path)).slice(0, 8)
       : [];
 
-    changedNodes.forEach((node) => {
-      const changedNode = container.querySelector(`[data-svg-node-id="${node.id}"]`);
-      if (changedNode) {
-        changedNode.setAttribute('data-svg-node-changed', 'true');
-      }
-    });
-
-    if (selectedNodeId) {
-      const selectedPreviewNode = container.querySelector(`[data-svg-node-id="${selectedNodeId}"]`);
-      if (selectedPreviewNode) {
-        selectedPreviewNode.setAttribute('data-svg-node-selected', 'true');
-      }
+    if (selectionAppearanceSettings.changed.visible) {
+      changedNodes.forEach((node) => {
+        const changedNode = container.querySelector(`[data-svg-node-id="${node.id}"]`);
+        if (changedNode) {
+          changedNode.setAttribute('data-svg-node-changed', 'true');
+        }
+      });
     }
-  }, [analysis, hoveredPreviewNodeIds, recentChangePaths, selectedNodeId]);
+
+    if (analysis && targetPaths.length > 0 && selectionAppearanceSettings.targeted.visible) {
+      const targetNodes = Object.values(analysis.nodesById).filter((node) => targetPaths.includes(node.path));
+      targetNodes.forEach((node) => {
+        const targetPreviewNode = container.querySelector(`[data-svg-node-id="${node.id}"]`);
+        if (targetPreviewNode) {
+          targetPreviewNode.setAttribute('data-svg-node-targeted', 'true');
+        }
+      });
+    }
+
+    if (selectionAppearanceSettings.selected.visible) {
+      selectedPreviewNodeIds.forEach((nodeId) => {
+        const selectedPreviewNode = container.querySelector(`[data-svg-node-id="${nodeId}"]`);
+        if (selectedPreviewNode) {
+          selectedPreviewNode.setAttribute('data-svg-node-selected', 'true');
+        }
+      });
+    }
+  }, [analysis, hoveredPreviewNodeIds, recentChangePaths, selectedPreviewNodeIds, selectionAppearanceSettings, selectionFacet]);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -391,6 +776,37 @@ function App() {
     .slice(0, 8);
   const availableInspectorTabs = inspectorTabsBySection[activeSection];
   const selectedNode = selectedNodeId && analysis ? analysis.nodesById[selectedNodeId] : null;
+  const selectedPreviewNodeCount = selectedPreviewNodeIds.length;
+  const activeSelectionAppearance = selectionAppearancePresets.find((preset) => preset.id === selectionAppearancePreset) ?? selectionAppearancePresets[0];
+  const selectionAppearanceStyle = buildSelectionAppearanceStyle(activeSelectionAppearance, selectionAppearanceSettings);
+  const nodesByPath = analysis
+    ? new Map(Object.values(analysis.nodesById).map((node) => [node.path, node]))
+    : null;
+  const authorableSelectionPaths = analysis
+    ? Array.from(new Set(selectedPreviewNodeIds
+      .filter((nodeId) => nodeId !== analysis.rootNodeId)
+      .map((nodeId) => analysis.nodesById[nodeId]?.path)
+      .filter((path): path is string => Boolean(path))))
+    : [];
+  const animationTargetPaths = selectionFacet === 'animate' ? authorableSelectionPaths : [];
+  const animationTargetNodes = animationTargetPaths
+    .map((path) => nodesByPath?.get(path))
+    .filter((node): node is Analysis['nodesById'][string] => Boolean(node));
+  const animationPreset = getAnimationPresetDefinition(animationDraft.presetId);
+  const selectedNodeAnimations = selectedNode ? listAnimationsForPath(source, selectedNode.path) : [];
+  const activeAnimationOverride = activeAnimationTargetPath ? targetAnimationOverrides[activeAnimationTargetPath] ?? null : null;
+  const selectedNodeInteraction = selectedNode ? inspectInteractionForPath(source, selectedNode.path) : null;
+  const previewTimelineMax = Math.max(
+    4,
+    ...animationTargetPaths.map((path) => {
+      const override = targetAnimationOverrides[path] ?? {};
+      const duration = override.durationSeconds ?? animationDraft.durationSeconds;
+      const delay = override.delaySeconds ?? animationDraft.delaySeconds;
+      const repeatMode = override.repeatMode ?? animationDraft.repeatMode;
+      const repeatCount = override.repeatCount ?? animationDraft.repeatCount;
+      return delay + duration * (repeatMode === 'indefinite' ? 3 : Math.max(1, repeatCount));
+    }),
+  );
   const recentChangedNodes = analysis
     ? Object.values(analysis.nodesById).filter((node) => recentChangePaths.includes(node.path)).slice(0, 8)
     : [];
@@ -468,6 +884,31 @@ function App() {
       : 'Load an SVG to begin';
 
   useEffect(() => {
+    if (authorableSelectionPaths.length === 0) {
+      setActiveAnimationTargetPath(null);
+      return;
+    }
+
+    const selectedPath = selectedNode && selectedNode.id !== analysis?.rootNodeId ? selectedNode.path : null;
+    setActiveAnimationTargetPath((current) => {
+      if (selectedPath && authorableSelectionPaths.includes(selectedPath)) {
+        return selectedPath;
+      }
+
+      return current && authorableSelectionPaths.includes(current) ? current : authorableSelectionPaths[0];
+    });
+  }, [analysis?.rootNodeId, authorableSelectionPaths, selectedNode]);
+
+  useEffect(() => {
+    setInteractionDraft(
+      selectedNode
+        ? inferInteractionDraftForPath(source, selectedNode.path) ?? createInteractionDraft(selectedNode.attributes)
+        : createInteractionDraft(),
+    );
+    setInteractionMessage(null);
+  }, [fileName, selectedNodeId]);
+
+  useEffect(() => {
     if (!availableInspectorTabs.includes(inspectorTab)) {
       setInspectorTab(defaultInspectorTabBySection[activeSection]);
     }
@@ -482,6 +923,13 @@ function App() {
     setRecentChangePaths([]);
     setSourceActionMessage(null);
     setSourceSelection({ start: 0, end: 0 });
+    setActiveAnimationTargetPath(null);
+    setTargetAnimationOverrides({});
+    setAnimationReplaceMode('workbench');
+    setAnimationMessage(null);
+    setInteractionMessage(null);
+    setPreviewTimelineSeconds(0);
+    setIsPreviewTimelinePlaying(true);
   }
 
   function resetPreviewViewport() {
@@ -1052,9 +1500,79 @@ function App() {
     setInspectorTab(defaultInspectorTabBySection[section]);
   }
 
-  function inspectSelectedNode(nodeId: string) {
+  function inspectSelectedNode(nodeId: string, options?: { appendSelection?: boolean; syncPreviewSelection?: boolean }) {
     setSelectedNodeId(nodeId);
     setInspectorTab('selection');
+
+    if (options?.syncPreviewSelection ?? true) {
+      setSelectedPreviewNodeIds((current) => {
+        if (!options?.appendSelection) {
+          return [nodeId];
+        }
+
+        return current.includes(nodeId)
+          ? current.filter((currentNodeId) => currentNodeId !== nodeId)
+          : [...current, nodeId];
+      });
+    }
+  }
+
+  function handlePreviewNodeSelection(nodeId: string, append: boolean) {
+    inspectSelectedNode(nodeId, { appendSelection: append, syncPreviewSelection: true });
+    if (analysis?.nodesById[nodeId]) {
+      setActiveAnimationTargetPath(analysis.nodesById[nodeId].path);
+    }
+  }
+
+  function updateSelectionAppearanceVisibility(stateId: SelectionAppearanceStateId, visible: boolean) {
+    setSelectionAppearanceSettings((current) => ({
+      ...current,
+      [stateId]: {
+        ...current[stateId],
+        visible,
+      },
+    }));
+  }
+
+  function updateSelectionAppearanceIntensity(stateId: SelectionAppearanceStateId, intensity: SelectionAppearanceIntensity) {
+    setSelectionAppearanceSettings((current) => ({
+      ...current,
+      [stateId]: {
+        ...current[stateId],
+        intensity,
+      },
+    }));
+  }
+
+  function exportSelectionAppearancePreset() {
+    const snapshot: SelectionAppearanceSnapshot = {
+      preset: selectionAppearancePreset,
+      settings: selectionAppearanceSettings,
+    };
+
+    setSelectionAppearanceTransferText(JSON.stringify(snapshot, null, 2));
+    setSelectionAppearanceMessage('Loaded the current selection appearance settings into the preset JSON field.');
+  }
+
+  function resetSelectionAppearancePreset() {
+    const snapshot = createDefaultSelectionAppearanceSnapshot();
+    setSelectionAppearancePreset(snapshot.preset);
+    setSelectionAppearanceSettings(snapshot.settings);
+    setSelectionAppearanceTransferText(JSON.stringify(snapshot, null, 2));
+    setSelectionAppearanceMessage('Reset selection appearance to the default Studio preset.');
+  }
+
+  function importSelectionAppearancePreset() {
+    try {
+      const snapshot = parseSelectionAppearanceSnapshot(JSON.parse(selectionAppearanceTransferText));
+      setSelectionAppearancePreset(snapshot.preset);
+      setSelectionAppearanceSettings(snapshot.settings);
+      setSelectionAppearanceTransferText(JSON.stringify(snapshot, null, 2));
+      const importedPreset = selectionAppearancePresets.find((preset) => preset.id === snapshot.preset) ?? selectionAppearancePresets[0];
+      setSelectionAppearanceMessage(`Imported the ${importedPreset.label} selection appearance preset.`);
+    } catch {
+      setSelectionAppearanceMessage('Unable to import selection appearance JSON.');
+    }
   }
 
   function getInspectorTabButtonId(tab: InspectorTab) {
@@ -1063,6 +1581,54 @@ function App() {
 
   function getInspectorTabPanelId() {
     return `${inspectorTabsId}-panel`;
+  }
+
+  function getSelectionFacetTabButtonId(facet: SelectionFacet) {
+    return `${selectionFacetTabsId}-${facet}-tab`;
+  }
+
+  function getSelectionFacetTabPanelId() {
+    return `${selectionFacetTabsId}-panel`;
+  }
+
+  function focusSelectionFacetTab(facet: SelectionFacet) {
+    const tabButton = document.getElementById(getSelectionFacetTabButtonId(facet));
+    if (tabButton instanceof HTMLButtonElement) {
+      tabButton.focus();
+    }
+  }
+
+  function handleSelectionFacetKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentFacet: SelectionFacet) {
+    const facets = Object.keys(selectionFacetLabels) as SelectionFacet[];
+    const currentIndex = facets.indexOf(currentFacet);
+    if (currentIndex === -1) {
+      return;
+    }
+
+    let nextFacet: SelectionFacet | null = null;
+
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        nextFacet = facets[(currentIndex + 1) % facets.length];
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        nextFacet = facets[(currentIndex - 1 + facets.length) % facets.length];
+        break;
+      case 'Home':
+        nextFacet = facets[0];
+        break;
+      case 'End':
+        nextFacet = facets[facets.length - 1];
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    setSelectionFacet(nextFacet);
+    focusSelectionFacetTab(nextFacet);
   }
 
   function focusInspectorTab(tab: InspectorTab) {
@@ -1276,7 +1842,7 @@ function App() {
 
     const nodeId = resolvePreviewNodeId(event.target, event.clientX, event.clientY);
     if (nodeId) {
-      inspectSelectedNode(nodeId);
+      handlePreviewNodeSelection(nodeId, event.shiftKey || event.ctrlKey || event.metaKey);
     }
   }
 
@@ -1287,6 +1853,786 @@ function App() {
 
     event.preventDefault();
     zoomPreview(event.deltaY < 0 ? PREVIEW_SCALE_STEP : -PREVIEW_SCALE_STEP);
+  }
+
+  function setAnimationPreset(presetId: AnimationPresetId) {
+    setAnimationDraft((current) => createAnimationDraft(presetId, current));
+    setAnimationMessage(null);
+  }
+
+  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'orbitRadiusX' | 'orbitRadiusY'>, value: number) {
+    setAnimationDraft((current) => ({
+      ...current,
+      [field]: Number.isFinite(value) ? value : 0,
+    }));
+    setAnimationMessage(null);
+  }
+
+  function updateAnimationTextField(field: keyof Pick<AnimationDraft, 'colorFrom' | 'colorMid' | 'colorTo'>, value: string) {
+    setAnimationDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setAnimationMessage(null);
+  }
+
+  function updateAnimationSelectField(
+    field: keyof Pick<AnimationDraft, 'startMode' | 'easing' | 'motionDirection' | 'rotateMode' | 'repeatMode' | 'fillMode'>,
+    value: AnimationStartMode | AnimationEasing | AnimationMotionDirection | AnimationRotateMode | AnimationDraft['repeatMode'] | AnimationDraft['fillMode'],
+  ) {
+    setAnimationDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setAnimationMessage(null);
+  }
+
+  function updateActiveTargetOverride(field: keyof Partial<AnimationDraft>, value: Partial<AnimationDraft>[keyof AnimationDraft]) {
+    if (!activeAnimationTargetPath) {
+      return;
+    }
+
+    setTargetAnimationOverrides((current) => ({
+      ...current,
+      [activeAnimationTargetPath]: {
+        ...(current[activeAnimationTargetPath] ?? {}),
+        [field]: value,
+      },
+    }));
+    setAnimationMessage(null);
+  }
+
+  function clearActiveTargetOverride() {
+    if (!activeAnimationTargetPath) {
+      return;
+    }
+
+    setTargetAnimationOverrides((current) => {
+      const nextOverrides = { ...current };
+      delete nextOverrides[activeAnimationTargetPath];
+      return nextOverrides;
+    });
+    setAnimationMessage(null);
+  }
+
+  function getEffectiveAnimationDraft(path: string) {
+    return createAnimationDraft(animationDraft.presetId, {
+      ...animationDraft,
+      ...(targetAnimationOverrides[path] ?? {}),
+    });
+  }
+
+  function loadSelectedNodeAnimationIntoEditor() {
+    if (!selectedNode) {
+      return;
+    }
+
+    const inferredDraft = inferAnimationDraftForPath(source, selectedNode.path);
+    if (!inferredDraft) {
+      setAnimationMessage('No editable animation settings were found on the selected element.');
+      return;
+    }
+
+    setAnimationDraft(inferredDraft);
+    setActiveAnimationTargetPath(selectedNode.path);
+    setAnimationReplaceMode(selectedNodeAnimations.some((animation) => !animation.isWorkbenchAuthored) ? 'all' : 'workbench');
+    setAnimationMessage('Loaded the selected element animation into the editor for migration or reapply.');
+  }
+
+  function getPreviewSvgElement() {
+    const previewSvg = previewFrameRef.current?.querySelector('svg');
+    return previewSvg instanceof SVGSVGElement ? previewSvg : null;
+  }
+
+  function pausePreviewTimeline() {
+    const previewSvg = getPreviewSvgElement() as (SVGSVGElement & { pauseAnimations?: () => void; getCurrentTime?: () => number }) | null;
+    previewSvg?.pauseAnimations?.();
+    if (previewSvg?.getCurrentTime) {
+      setPreviewTimelineSeconds(Number(previewSvg.getCurrentTime().toFixed(2)));
+    }
+    setIsPreviewTimelinePlaying(false);
+  }
+
+  function playPreviewTimeline() {
+    const previewSvg = getPreviewSvgElement() as (SVGSVGElement & { unpauseAnimations?: () => void }) | null;
+    previewSvg?.unpauseAnimations?.();
+    setIsPreviewTimelinePlaying(true);
+  }
+
+  function restartPreviewTimeline() {
+    const previewSvg = getPreviewSvgElement() as (SVGSVGElement & { setCurrentTime?: (seconds: number) => void; unpauseAnimations?: () => void }) | null;
+    previewSvg?.setCurrentTime?.(0);
+    previewSvg?.unpauseAnimations?.();
+    setPreviewTimelineSeconds(0);
+    setIsPreviewTimelinePlaying(true);
+  }
+
+  function scrubPreviewTimeline(nextSeconds: number) {
+    const previewSvg = getPreviewSvgElement() as (SVGSVGElement & { setCurrentTime?: (seconds: number) => void; pauseAnimations?: () => void }) | null;
+    previewSvg?.pauseAnimations?.();
+    previewSvg?.setCurrentTime?.(nextSeconds);
+    setPreviewTimelineSeconds(nextSeconds);
+    setIsPreviewTimelinePlaying(false);
+  }
+
+  function applyAnimationToTargets() {
+    if (animationTargetPaths.length === 0) {
+      setAnimationMessage('Select at least one preview element to animate.');
+      return;
+    }
+
+    try {
+      const result = applyAnimationDraftsToSource(
+        source,
+        animationTargetPaths.map((path) => ({ path, draft: getEffectiveAnimationDraft(path) })),
+        animationReplaceMode,
+      );
+      const skippedCount = result.skippedPaths.length;
+      commitRepairSource(result.source, `Updated ${result.appliedCount} animation target${result.appliedCount === 1 ? '' : 's'} with ${animationPreset.label.toLowerCase()}.`);
+      setAnimationMessage(
+        skippedCount > 0
+          ? `Applied ${animationPreset.label.toLowerCase()} to ${result.appliedCount} target${result.appliedCount === 1 ? '' : 's'} and skipped ${skippedCount} unsupported selection${skippedCount === 1 ? '' : 's'}.`
+          : `Applied ${animationPreset.label.toLowerCase()} to ${result.appliedCount} target${result.appliedCount === 1 ? '' : 's'} and refreshed the live preview.`,
+      );
+    } catch (error) {
+      setAnimationMessage(error instanceof Error ? error.message : 'Unable to apply the selected animation.');
+    }
+  }
+
+  function clearWorkbenchAnimations() {
+    if (animationTargetPaths.length === 0) {
+      setAnimationMessage('Select at least one target before removing authored animations.');
+      return;
+    }
+
+    try {
+      const result = removeWorkbenchAnimationsFromSource(source, animationTargetPaths, animationReplaceMode);
+      commitRepairSource(result.source, result.removedCount > 0 ? `Removed ${result.removedCount} workbench animation node${result.removedCount === 1 ? '' : 's'}.` : 'No workbench-authored animations were found on the selected targets.');
+      setAnimationMessage(
+        result.removedCount > 0
+          ? `Removed ${result.removedCount} workbench animation node${result.removedCount === 1 ? '' : 's'} from the current targets.`
+          : 'No workbench-authored animations were found on the current targets.',
+      );
+    } catch (error) {
+      setAnimationMessage(error instanceof Error ? error.message : 'Unable to remove authored animations.');
+    }
+  }
+
+  function updateInteractionDraftField(field: keyof ReturnType<typeof createInteractionDraft>, value: string) {
+    setInteractionDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setInteractionMessage(null);
+  }
+
+  function applyInteractionPreset(presetId: InteractionBehaviorPresetId) {
+    setInteractionDraft((current) => applyInteractionBehaviorPreset(current, presetId));
+    setInteractionMessage(`Loaded the ${interactionBehaviorPresets.find((preset) => preset.id === presetId)?.label.toLowerCase() ?? 'interaction'} preset into the editor.`);
+  }
+
+  function reloadInteractionDraftFromSelection() {
+    setInteractionDraft(
+      selectedNode
+        ? inferInteractionDraftForPath(source, selectedNode.path) ?? createInteractionDraft(selectedNode.attributes)
+        : createInteractionDraft(),
+    );
+    setInteractionMessage(selectedNode ? 'Reloaded interaction fields from the inspected element.' : 'Select an element to inspect its interaction fields.');
+  }
+
+  function applyInteractionToSelection() {
+    if (authorableSelectionPaths.length === 0) {
+      setInteractionMessage('Select at least one preview element to update interaction attributes.');
+      return;
+    }
+
+    try {
+      const result = applyInteractionDraftToSource(source, authorableSelectionPaths, interactionDraft);
+      commitRepairSource(
+        result.source,
+        result.updatedCount > 0
+          ? `Updated interaction attributes on ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`
+          : 'The selected interaction attributes already match the current selection.',
+      );
+      setInteractionMessage(
+        result.skippedPaths.length > 0
+          ? `Updated ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
+          : `Applied interaction fields to ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`,
+      );
+    } catch (error) {
+      setInteractionMessage(error instanceof Error ? error.message : 'Unable to update interaction attributes.');
+    }
+  }
+
+  function renderSelectionStyleSection() {
+    return (
+      <section className="focus-card section-card">
+        <div className="section-header-inline" data-fit-container>
+          <h3>Selection appearance</h3>
+          <span className="status-label">{activeSelectionAppearance.label}</span>
+        </div>
+        <p className="section-copy">Adjust how selected, hovered, changed, and animation-targeted nodes read in the live preview.</p>
+        <div className="selection-appearance-grid" role="list" aria-label="Selection highlight presets">
+          {selectionAppearancePresets.map((preset) => (
+            <button
+              key={preset.id}
+              className={`selection-appearance-card${selectionAppearancePreset === preset.id ? ' active' : ''}`}
+              type="button"
+              onClick={() => setSelectionAppearancePreset(preset.id)}
+              aria-pressed={selectionAppearancePreset === preset.id}
+            >
+              <strong>{preset.label}</strong>
+              <span>{preset.description}</span>
+              <span className="selection-appearance-swatches" aria-hidden="true">
+                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.selected }} />
+                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.hovered }} />
+                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.changed }} />
+                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.targeted }} />
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="selection-appearance-panel" data-selection-style={selectionAppearancePreset} style={selectionAppearanceStyle}>
+          <p className="selection-subtitle">Highlight controls</p>
+          <p className="selection-copy selection-appearance-copy">Saved in this browser and applied the next time you open the workbench.</p>
+          <div className="selection-appearance-actions" role="toolbar" aria-label="Selection appearance preset actions">
+            <button className="ghost-button" type="button" onClick={exportSelectionAppearancePreset}>
+              Export preset JSON
+            </button>
+            <button className="ghost-button" type="button" onClick={importSelectionAppearancePreset} disabled={selectionAppearanceTransferText.trim().length === 0}>
+              Import preset JSON
+            </button>
+            <button className="ghost-button" type="button" onClick={resetSelectionAppearancePreset}>
+              Reset defaults
+            </button>
+          </div>
+          <label className="selection-appearance-json-field">
+            <span>Preset JSON</span>
+            <textarea
+              aria-label="Selection appearance preset JSON"
+              value={selectionAppearanceTransferText}
+              onChange={(event) => {
+                setSelectionAppearanceTransferText(event.target.value);
+                setSelectionAppearanceMessage(null);
+              }}
+              rows={8}
+              spellCheck={false}
+            />
+          </label>
+          {selectionAppearanceMessage ? <p className="selection-copy selection-appearance-copy">{selectionAppearanceMessage}</p> : null}
+          <ul className="selection-appearance-legend">
+            {selectionAppearanceLegend.map((item) => {
+              const settings = selectionAppearanceSettings[item.id];
+
+              return (
+                <li key={item.id}>
+                  <div className="selection-appearance-state-card">
+                    <div className="selection-appearance-state-header">
+                      <span className="selection-appearance-legend-swatch" data-selection-legend={item.id} aria-hidden="true" />
+                      <strong>{item.label}</strong>
+                    </div>
+                    <p className="selection-appearance-state-copy">{item.description}</p>
+                    <label className="selection-appearance-toggle">
+                      <input
+                        type="checkbox"
+                        aria-label={`${item.label} highlight visible`}
+                        checked={settings.visible}
+                        onChange={(event) => updateSelectionAppearanceVisibility(item.id, event.target.checked)}
+                      />
+                      Show highlight
+                    </label>
+                    <label className="selection-appearance-field">
+                      <span>Intensity</span>
+                      <select
+                        aria-label={`${item.label} highlight intensity`}
+                        value={settings.intensity}
+                        onChange={(event) => updateSelectionAppearanceIntensity(item.id, event.target.value as SelectionAppearanceIntensity)}
+                        disabled={!settings.visible}
+                      >
+                        {selectionAppearanceIntensityOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option.charAt(0).toUpperCase() + option.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+    );
+  }
+
+  function renderAnimationSection() {
+    return (
+      <>
+        <section className="status-card compact-card">
+          <p className="status-label">Animation authoring</p>
+          <strong>{animationTargetNodes.length} selected target{animationTargetNodes.length === 1 ? '' : 's'}</strong>
+          <p>{analysis?.runtimeFeatures.animationElementCount ?? 0} animation nodes are currently present in the SVG.</p>
+        </section>
+
+        <section className="focus-card section-card animation-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Selection targets</h3>
+            <span className="status-label">Selection-driven</span>
+          </div>
+          <p className="section-copy">Select preview elements first, then tune the animation preset here. Hold Shift, Ctrl, or Cmd while clicking to build a multi-target selection.</p>
+          <div className="animation-target-actions" role="toolbar" aria-label="Animation target actions">
+            <button className="ghost-button" type="button" onClick={loadSelectedNodeAnimationIntoEditor} disabled={!selectedNode || selectedNodeAnimations.length === 0}>
+              Load selected animation
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds(selectedNodeId ? [selectedNodeId] : [])} disabled={selectedPreviewNodeCount <= 1}>
+              Keep only inspected element
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds([])} disabled={authorableSelectionPaths.length === 0}>
+              Clear selection
+            </button>
+          </div>
+          {animationTargetNodes.length > 0 ? (
+            <ul className="animation-target-list interactive-list">
+              {animationTargetNodes.map((node) => (
+                <li key={node.path} data-fit-container>
+                  <button className={`inline-list-button${activeAnimationTargetPath === node.path ? ' active-target' : ''}`} type="button" onClick={() => {
+                    inspectSelectedNode(node.id);
+                    setActiveAnimationTargetPath(node.path);
+                  }}>
+                    <span className="selection-tag">{node.name}</span>
+                    <strong>{getNodeListLabel(node)}</strong>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="selection-copy">No preview elements are selected for animation yet.</p>
+          )}
+        </section>
+
+        <section className="focus-card section-card animation-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Animation preset</h3>
+            <span className="status-label">{animationPreset.label}</span>
+          </div>
+          <div className="animation-preset-grid" role="list" aria-label="Animation presets">
+            {animationPresets.map((preset) => (
+              <button
+                key={preset.id}
+                className={`animation-preset-card${animationDraft.presetId === preset.id ? ' active' : ''}`}
+                type="button"
+                onClick={() => setAnimationPreset(preset.id)}
+                aria-pressed={animationDraft.presetId === preset.id}
+              >
+                <strong>{preset.label}</strong>
+                <span>{preset.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="focus-card section-card animation-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Animation details</h3>
+            <span className="status-label">Timeline + motion</span>
+          </div>
+          <div className="animation-form-grid">
+            <label className="animation-field">
+              <span>Start when</span>
+              <select value={animationDraft.startMode} onChange={(event) => updateAnimationSelectField('startMode', event.target.value as AnimationStartMode)}>
+                <option value="load">On load</option>
+                <option value="click">On click</option>
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Duration (s)</span>
+              <input type="number" min="0.1" step="0.1" value={animationDraft.durationSeconds} onChange={(event) => updateAnimationNumberField('durationSeconds', Number(event.target.value))} />
+            </label>
+            <label className="animation-field">
+              <span>Delay (s)</span>
+              <input type="number" min="0" step="0.1" value={animationDraft.delaySeconds} onChange={(event) => updateAnimationNumberField('delaySeconds', Number(event.target.value))} />
+            </label>
+            <label className="animation-field">
+              <span>Easing</span>
+              <select value={animationDraft.easing} onChange={(event) => updateAnimationSelectField('easing', event.target.value as AnimationEasing)}>
+                <option value="linear">Linear</option>
+                <option value="ease-in">Ease in</option>
+                <option value="ease-out">Ease out</option>
+                <option value="ease-in-out">Ease in out</option>
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Repeat</span>
+              <select value={animationDraft.repeatMode} onChange={(event) => updateAnimationSelectField('repeatMode', event.target.value === 'count' ? 'count' : 'indefinite')}>
+                <option value="indefinite">Indefinite</option>
+                <option value="count">Fixed count</option>
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Repeat count</span>
+              <input type="number" min="1" step="1" value={animationDraft.repeatCount} onChange={(event) => updateAnimationNumberField('repeatCount', Number(event.target.value))} disabled={animationDraft.repeatMode === 'indefinite'} />
+            </label>
+            <label className="animation-field">
+              <span>Fill mode</span>
+              <select value={animationDraft.fillMode} onChange={(event) => updateAnimationSelectField('fillMode', event.target.value === 'freeze' ? 'freeze' : 'remove')}>
+                <option value="remove">Remove</option>
+                <option value="freeze">Freeze</option>
+              </select>
+            </label>
+            {animationDraft.presetId === 'drift' ? (
+              <>
+                <label className="animation-field">
+                  <span>Direction</span>
+                  <select value={animationDraft.motionDirection} onChange={(event) => updateAnimationSelectField('motionDirection', event.target.value as AnimationMotionDirection)}>
+                    <option value="up">Up</option>
+                    <option value="down">Down</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                    <option value="up-left">Up left</option>
+                    <option value="up-right">Up right</option>
+                    <option value="down-left">Down left</option>
+                    <option value="down-right">Down right</option>
+                  </select>
+                </label>
+                <label className="animation-field">
+                  <span>Distance</span>
+                  <input type="number" min="0" step="1" value={animationDraft.motionDistance} onChange={(event) => updateAnimationNumberField('motionDistance', Number(event.target.value))} />
+                </label>
+              </>
+            ) : animationDraft.presetId === 'orbit' ? (
+              <>
+                <label className="animation-field">
+                  <span>Orbit radius X</span>
+                  <input type="number" min="1" step="1" value={animationDraft.orbitRadiusX} onChange={(event) => updateAnimationNumberField('orbitRadiusX', Number(event.target.value))} />
+                </label>
+                <label className="animation-field">
+                  <span>Orbit radius Y</span>
+                  <input type="number" min="1" step="1" value={animationDraft.orbitRadiusY} onChange={(event) => updateAnimationNumberField('orbitRadiusY', Number(event.target.value))} />
+                </label>
+                <label className="animation-field">
+                  <span>Rotate with path</span>
+                  <select value={animationDraft.rotateMode} onChange={(event) => updateAnimationSelectField('rotateMode', event.target.value as AnimationRotateMode)}>
+                    <option value="auto">Auto</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
+              </>
+            ) : animationDraft.presetId === 'color-shift' ? (
+              <>
+                <label className="animation-field">
+                  <span>From color</span>
+                  <input type="text" value={animationDraft.colorFrom} onChange={(event) => updateAnimationTextField('colorFrom', event.target.value)} />
+                </label>
+                <label className="animation-field">
+                  <span>Middle color</span>
+                  <input type="text" value={animationDraft.colorMid} onChange={(event) => updateAnimationTextField('colorMid', event.target.value)} />
+                </label>
+                <label className="animation-field">
+                  <span>To color</span>
+                  <input type="text" value={animationDraft.colorTo} onChange={(event) => updateAnimationTextField('colorTo', event.target.value)} />
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="animation-field">
+                  <span>Start opacity</span>
+                  <input type="number" min="0" max="1" step="0.05" value={animationDraft.startOpacity} onChange={(event) => updateAnimationNumberField('startOpacity', Number(event.target.value))} />
+                </label>
+                <label className="animation-field">
+                  <span>{animationDraft.presetId === 'fade-in' ? 'End opacity' : 'Mid opacity'}</span>
+                  <input type="number" min="0" max="1" step="0.05" value={animationDraft.presetId === 'fade-in' ? animationDraft.endOpacity : animationDraft.midOpacity} onChange={(event) => updateAnimationNumberField(animationDraft.presetId === 'fade-in' ? 'endOpacity' : 'midOpacity', Number(event.target.value))} />
+                </label>
+                {animationDraft.presetId !== 'fade-in' ? (
+                  <label className="animation-field">
+                    <span>End opacity</span>
+                    <input type="number" min="0" max="1" step="0.05" value={animationDraft.endOpacity} onChange={(event) => updateAnimationNumberField('endOpacity', Number(event.target.value))} />
+                  </label>
+                ) : null}
+              </>
+            )}
+          </div>
+          <div className="animation-preview-card">
+            <div className="animation-preview-copy">
+              <strong>Preset preview</strong>
+              <p>{describeAnimationDraft(animationDraft)}</p>
+            </div>
+            <div className="animation-preview-stage">
+              {(() => {
+                const previewMotion = getPreviewMotionVector(animationDraft.motionDirection, animationDraft.motionDistance);
+                const previewStyle: CSSProperties & Record<string, string> = {
+                  animationDuration: `${Math.max(0.1, animationDraft.durationSeconds)}s`,
+                  animationDelay: `${Math.max(0, animationDraft.delaySeconds)}s`,
+                  animationIterationCount: animationDraft.repeatMode === 'indefinite' ? 'infinite' : `${Math.max(1, Math.round(animationDraft.repeatCount))}`,
+                  animationTimingFunction: animationDraft.easing === 'linear' ? 'linear' : animationDraft.easing === 'ease-in' ? 'ease-in' : animationDraft.easing === 'ease-out' ? 'ease-out' : 'ease-in-out',
+                  '--animation-preview-start': `${animationDraft.startOpacity}`,
+                  '--animation-preview-mid': `${animationDraft.midOpacity}`,
+                  '--animation-preview-end': `${animationDraft.endOpacity}`,
+                  '--animation-preview-x': `${previewMotion.x}px`,
+                  '--animation-preview-y': `${previewMotion.y}px`,
+                  '--animation-preview-distance': `${animationDraft.motionDistance}px`,
+                  '--animation-preview-orbit-x': `${animationDraft.orbitRadiusX}px`,
+                  '--animation-preview-orbit-y': `${animationDraft.orbitRadiusY}px`,
+                  '--animation-preview-color-from': animationDraft.colorFrom,
+                  '--animation-preview-color-mid': animationDraft.colorMid,
+                  '--animation-preview-color-to': animationDraft.colorTo,
+                };
+                return (
+                  <div
+                    className={`animation-preview-swatch preset-${animationDraft.presetId}`}
+                    style={previewStyle}
+                  />
+                );
+              })()}
+            </div>
+          </div>
+        </section>
+
+        <section className="focus-card section-card animation-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Target override</h3>
+            <span className="status-label">{activeAnimationTargetPath ? 'Active target' : 'Optional'}</span>
+          </div>
+          {activeAnimationTargetPath ? (
+            <>
+              <p className="section-copy">Override timing or preset-specific values for the active target without changing the shared preset for the rest of the current selection.</p>
+              <div className="animation-form-grid override-grid">
+                <label className="animation-field">
+                  <span>Duration override (s)</span>
+                  <input type="number" min="0.1" step="0.1" value={activeAnimationOverride?.durationSeconds ?? animationDraft.durationSeconds} onChange={(event) => updateActiveTargetOverride('durationSeconds', Number(event.target.value))} />
+                </label>
+                <label className="animation-field">
+                  <span>Delay override (s)</span>
+                  <input type="number" min="0" step="0.1" value={activeAnimationOverride?.delaySeconds ?? animationDraft.delaySeconds} onChange={(event) => updateActiveTargetOverride('delaySeconds', Number(event.target.value))} />
+                </label>
+                {animationDraft.presetId === 'drift' ? (
+                  <label className="animation-field">
+                    <span>Distance override</span>
+                    <input type="number" min="0" step="1" value={activeAnimationOverride?.motionDistance ?? animationDraft.motionDistance} onChange={(event) => updateActiveTargetOverride('motionDistance', Number(event.target.value))} />
+                  </label>
+                ) : null}
+                {animationDraft.presetId === 'orbit' ? (
+                  <>
+                    <label className="animation-field">
+                      <span>Orbit X override</span>
+                      <input type="number" min="1" step="1" value={activeAnimationOverride?.orbitRadiusX ?? animationDraft.orbitRadiusX} onChange={(event) => updateActiveTargetOverride('orbitRadiusX', Number(event.target.value))} />
+                    </label>
+                    <label className="animation-field">
+                      <span>Orbit Y override</span>
+                      <input type="number" min="1" step="1" value={activeAnimationOverride?.orbitRadiusY ?? animationDraft.orbitRadiusY} onChange={(event) => updateActiveTargetOverride('orbitRadiusY', Number(event.target.value))} />
+                    </label>
+                  </>
+                ) : null}
+                {animationDraft.presetId === 'color-shift' ? (
+                  <>
+                    <label className="animation-field">
+                      <span>From color override</span>
+                      <input type="text" value={activeAnimationOverride?.colorFrom ?? animationDraft.colorFrom} onChange={(event) => updateActiveTargetOverride('colorFrom', event.target.value)} />
+                    </label>
+                    <label className="animation-field">
+                      <span>Middle color override</span>
+                      <input type="text" value={activeAnimationOverride?.colorMid ?? animationDraft.colorMid} onChange={(event) => updateActiveTargetOverride('colorMid', event.target.value)} />
+                    </label>
+                    <label className="animation-field">
+                      <span>To color override</span>
+                      <input type="text" value={activeAnimationOverride?.colorTo ?? animationDraft.colorTo} onChange={(event) => updateActiveTargetOverride('colorTo', event.target.value)} />
+                    </label>
+                  </>
+                ) : null}
+              </div>
+              <div className="animation-target-actions" role="toolbar" aria-label="Target override actions">
+                <button className="ghost-button" type="button" onClick={clearActiveTargetOverride}>
+                  Clear override
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="selection-copy">Select a target from the list above to add an override for just that element.</p>
+          )}
+        </section>
+
+        <section className="focus-card section-card animation-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Preview and apply</h3>
+            <span className="status-label">Source-backed</span>
+          </div>
+          <p className="section-copy">Applying an animation updates the SVG source and refreshes the main preview immediately. Reapplying replaces only workbench-authored animation nodes on the selected targets.</p>
+          <label className="animation-field checkbox-field">
+            <span>Replace mode</span>
+            <select value={animationReplaceMode} onChange={(event) => setAnimationReplaceMode(event.target.value === 'all' ? 'all' : 'workbench')}>
+              <option value="workbench">Replace workbench-authored animation only</option>
+              <option value="all">Replace all direct animation children on targets</option>
+            </select>
+          </label>
+          <div className="animation-target-actions" role="toolbar" aria-label="Animation apply actions">
+            <button className="primary-button" type="button" onClick={applyAnimationToTargets} disabled={animationTargetPaths.length === 0}>
+              Preview and apply to {animationTargetPaths.length || 0} target{animationTargetPaths.length === 1 ? '' : 's'}
+            </button>
+            <button className="ghost-button" type="button" onClick={clearWorkbenchAnimations} disabled={animationTargetPaths.length === 0}>
+              Remove workbench animations
+            </button>
+          </div>
+          {animationMessage ? <p className="repair-note">{animationMessage}</p> : null}
+        </section>
+      </>
+    );
+  }
+
+  function renderInteractionSection() {
+    const canEditLinkFields = selectedNode ? isAnchorLikeNode(selectedNode.name) : false;
+
+    return (
+      <>
+        <section className="status-card compact-card">
+          <p className="status-label">Interaction authoring</p>
+          <strong>{authorableSelectionPaths.length} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}</strong>
+          <p>Apply pointer, focus, tooltip, and state-driven hover/focus patterns across the current preview selection.</p>
+        </section>
+
+        <section className="focus-card section-card interaction-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Interaction fields</h3>
+            <span className="status-label">Selection-driven</span>
+          </div>
+          <p className="section-copy">These controls can write direct SVG attributes, attach a managed tooltip title node, and assign reusable hover/focus behavior classes. Link fields are enabled when the inspected element is an anchor.</p>
+          <div className="interaction-preset-grid" role="list" aria-label="Interaction behavior presets">
+            {interactionBehaviorPresets.map((preset) => (
+              <button
+                key={preset.id}
+                className="interaction-preset-card"
+                type="button"
+                aria-label={preset.label}
+                onClick={() => applyInteractionPreset(preset.id)}
+              >
+                <strong>{preset.label}</strong>
+                <span>{preset.description}</span>
+                <small>{preset.tags.join(' • ')}</small>
+              </button>
+            ))}
+          </div>
+          <div className="interaction-form-grid">
+            <label className="animation-field">
+              <span>Accessible label</span>
+              <input type="text" value={interactionDraft.ariaLabel} onChange={(event) => updateInteractionDraftField('ariaLabel', event.target.value)} />
+            </label>
+            <label className="animation-field">
+              <span>Tooltip text</span>
+              <input type="text" value={interactionDraft.tooltipText} onChange={(event) => updateInteractionDraftField('tooltipText', event.target.value)} placeholder="Shows in native SVG tooltip UIs" />
+            </label>
+            <label className="animation-field">
+              <span>Tab index</span>
+              <input type="text" value={interactionDraft.tabIndex} onChange={(event) => updateInteractionDraftField('tabIndex', event.target.value)} />
+            </label>
+            <label className="animation-field">
+              <span>Focusable</span>
+              <select value={interactionDraft.focusable} onChange={(event) => updateInteractionDraftField('focusable', event.target.value)}>
+                <option value="">Inherit / unset</option>
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Hover behavior</span>
+              <select value={interactionDraft.hoverPreset} onChange={(event) => updateInteractionDraftField('hoverPreset', event.target.value)}>
+                {interactionHoverPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Focus behavior</span>
+              <select value={interactionDraft.focusPreset} onChange={(event) => updateInteractionDraftField('focusPreset', event.target.value)}>
+                {interactionFocusPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Pointer events</span>
+              <input type="text" value={interactionDraft.pointerEvents} onChange={(event) => updateInteractionDraftField('pointerEvents', event.target.value)} placeholder="visiblePainted" />
+            </label>
+            <label className="animation-field">
+              <span>Cursor</span>
+              <input type="text" value={interactionDraft.cursor} onChange={(event) => updateInteractionDraftField('cursor', event.target.value)} placeholder="pointer" />
+            </label>
+            <label className="animation-field">
+              <span>Link href</span>
+              <input type="text" value={interactionDraft.href} onChange={(event) => updateInteractionDraftField('href', event.target.value)} disabled={!canEditLinkFields} placeholder={canEditLinkFields ? 'https://example.com' : 'Select an <a> element'} />
+            </label>
+            <label className="animation-field">
+              <span>Link target</span>
+              <input type="text" value={interactionDraft.target} onChange={(event) => updateInteractionDraftField('target', event.target.value)} disabled={!canEditLinkFields} placeholder="_blank" />
+            </label>
+            <label className="animation-field">
+              <span>Link rel</span>
+              <input type="text" value={interactionDraft.rel} onChange={(event) => updateInteractionDraftField('rel', event.target.value)} disabled={!canEditLinkFields} placeholder="noopener noreferrer" />
+            </label>
+          </div>
+          <div className="animation-target-actions" role="toolbar" aria-label="Interaction actions">
+            <button className="primary-button" type="button" onClick={applyInteractionToSelection} disabled={authorableSelectionPaths.length === 0}>
+              Apply to {authorableSelectionPaths.length || 0} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}
+            </button>
+            <button className="ghost-button" type="button" onClick={reloadInteractionDraftFromSelection}>
+              Reload from inspected element
+            </button>
+          </div>
+          {interactionMessage ? <p className="repair-note">{interactionMessage}</p> : null}
+        </section>
+
+        <section className="focus-card section-card interaction-section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Current interaction signals</h3>
+            <span className="status-label">Inspected element</span>
+          </div>
+          {selectedNode && selectedNodeInteraction ? (
+            <ul className="warning-list compact-note-list interaction-signal-list">
+              <li data-fit-container>
+                <span className="risk-badge info">href</span>
+                <span>{selectedNodeInteraction.href ? `${selectedNodeInteraction.href} (${selectedNodeInteraction.hrefKind})` : 'No direct link destination'}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">pointer</span>
+                <span>{selectedNodeInteraction.pointerEvents ? `pointer-events=${selectedNodeInteraction.pointerEvents}` : 'No explicit pointer-events attribute'}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">cursor</span>
+                <span>{selectedNodeInteraction.cursor ? `cursor=${selectedNodeInteraction.cursor}` : 'No explicit cursor attribute'}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">focus</span>
+                <span>{selectedNodeInteraction.tabIndex || selectedNodeInteraction.focusable ? `tabindex=${selectedNodeInteraction.tabIndex ?? 'unset'} • focusable=${selectedNodeInteraction.focusable ?? 'unset'}` : 'No explicit keyboard focus attributes'}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">hover</span>
+                <span>{selectedNodeInteraction.hoverPreset === 'none' ? 'No managed hover behavior preset' : `${selectedNodeInteraction.hoverPreset} behavior preset active`}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">focus fx</span>
+                <span>{selectedNodeInteraction.focusPreset === 'none' ? 'No managed focus behavior preset' : `${selectedNodeInteraction.focusPreset} behavior preset active`}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">tooltip</span>
+                <span>{selectedNodeInteraction.tooltipText ?? 'No direct title tooltip on this element'}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">label</span>
+                <span>{selectedNodeInteraction.ariaLabel ?? 'No aria-label attribute set'}</span>
+              </li>
+              <li data-fit-container>
+                <span className={`risk-badge ${selectedNodeInteraction.inlineEventAttributes.length > 0 ? 'warning' : 'info'}`}>events</span>
+                <span>{selectedNodeInteraction.inlineEventAttributes.length > 0 ? `${selectedNodeInteraction.inlineEventAttributes.join(', ')} present in source. Preview sanitization strips executable handlers.` : 'No inline event attributes detected.'}</span>
+              </li>
+              <li data-fit-container>
+                <span className="risk-badge info">styles</span>
+                <span>{selectedNodeInteraction.hasManagedStyles ? 'Managed interaction stylesheet is present in the SVG root.' : 'No managed interaction stylesheet is currently needed.'}</span>
+              </li>
+            </ul>
+          ) : (
+            <p className="selection-copy">Select an element in the preview to inspect its interaction signals.</p>
+          )}
+        </section>
+      </>
+    );
   }
 
   function renderFileSection() {
@@ -1914,32 +3260,102 @@ function App() {
     switch (inspectorTab) {
       case 'selection':
         return (
-          <section className="focus-card section-card inspector-card-fill">
-            <h3>Selected element</h3>
-            {selectedNode ? (
-              <div className="selection-card">
-                <p className="selection-tag">{selectedNode.name}</p>
-                <p className="selection-copy">{selectedNode.textPreview || 'No direct text content.'}</p>
-                <ul className="attribute-list">
-                  {Object.entries(selectedNode.attributes).length > 0 ? (
-                    Object.entries(selectedNode.attributes).slice(0, 10).map(([name, value]) => (
-                      <li key={name} data-fit-container>
-                        <span>{name}</span>
-                        <strong>{value}</strong>
+          <div className="inspector-stack tabbed-stack">
+            <section className="focus-card section-card inspector-card-fill">
+              <h3>Selected element</h3>
+              {selectedNode ? (
+                <div className="selection-card">
+                  <p className="selection-tag">{selectedNode.name}</p>
+                  <p className="selection-copy">{selectedNode.textPreview || 'No direct text content.'}</p>
+                  {selectedPreviewNodeCount > 1 ? (
+                    <p className="selection-copy selection-group-note">{selectedPreviewNodeCount} preview elements are selected. The inspector is showing the most recently inspected element.</p>
+                  ) : null}
+                  {animationTargetPaths.includes(selectedNode.path) ? (
+                    <p className="selection-copy selection-note">Included in the current animation target set.</p>
+                  ) : null}
+                  <div className="selection-animations-block">
+                    <p className="selection-subtitle">Animations on this element</p>
+                    <ul className="warning-list compact-note-list animation-summary-list">
+                      {selectedNodeAnimations.length > 0 ? (
+                        selectedNodeAnimations.map((animation, index) => (
+                          <li key={`${animation.nodeName}-${animation.label}-${index}`} data-fit-container>
+                            <span className={`risk-badge ${animation.isWorkbenchAuthored ? 'info' : 'warning'}`}>
+                              {animation.isWorkbenchAuthored ? 'workbench' : 'native'}
+                            </span>
+                            <span>
+                              <strong>{animation.label}</strong>
+                              <br />
+                              {animation.detail}
+                              {animation.duration ? ` • ${animation.duration}` : ''}
+                              {animation.begin ? ` • begins ${animation.begin}` : ''}
+                              {animation.repeatCount ? ` • repeats ${animation.repeatCount}` : ''}
+                            </span>
+                          </li>
+                        ))
+                      ) : (
+                        <li data-fit-container>
+                          <span className="risk-badge info">clear</span>
+                          <span>No direct animation children are attached to this element.</span>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                  <ul className="attribute-list">
+                    {Object.entries(selectedNode.attributes).length > 0 ? (
+                      Object.entries(selectedNode.attributes).slice(0, 10).map(([name, value]) => (
+                        <li key={name} data-fit-container>
+                          <span>{name}</span>
+                          <strong>{value}</strong>
+                        </li>
+                      ))
+                    ) : (
+                      <li data-fit-container>
+                        <span>No element attributes found.</span>
+                        <strong>0</strong>
                       </li>
-                    ))
-                  ) : (
-                    <li data-fit-container>
-                      <span>No element attributes found.</span>
-                      <strong>0</strong>
-                    </li>
-                  )}
-                </ul>
+                    )}
+                  </ul>
+                </div>
+              ) : (
+                <p className="selection-copy">Select an element in the preview to inspect it here.</p>
+              )}
+            </section>
+
+            <section className="focus-card section-card inspector-card-fill">
+              <div className="selection-facet-tabs" role="tablist" aria-label="Selected element tools">
+                {(Object.keys(selectionFacetLabels) as SelectionFacet[]).map((facet) => (
+                  <button
+                    key={facet}
+                    id={getSelectionFacetTabButtonId(facet)}
+                    className={`selection-facet-tab${selectionFacet === facet ? ' active' : ''}`}
+                    type="button"
+                    role="tab"
+                    tabIndex={selectionFacet === facet ? 0 : -1}
+                    aria-selected={selectionFacet === facet}
+                    aria-controls={getSelectionFacetTabPanelId()}
+                    onClick={() => setSelectionFacet(facet)}
+                    onKeyDown={(event) => handleSelectionFacetKeyDown(event, facet)}
+                  >
+                    {selectionFacetLabels[facet]}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <p className="selection-copy">Select an element in the preview to inspect it here.</p>
-            )}
-          </section>
+
+              <div
+                id={getSelectionFacetTabPanelId()}
+                className="selection-facet-panel"
+                role="tabpanel"
+                aria-labelledby={getSelectionFacetTabButtonId(selectionFacet)}
+                tabIndex={0}
+              >
+                {selectionFacet === 'style'
+                  ? renderSelectionStyleSection()
+                  : selectionFacet === 'animate'
+                    ? renderAnimationSection()
+                    : renderInteractionSection()}
+              </div>
+            </section>
+          </div>
         );
       case 'warnings':
         return (
@@ -2250,21 +3666,15 @@ function App() {
               return (
                 <button
                   key={item.id}
-                  className={`tool-item${isActive ? ' active' : ''}${!item.enabled ? ' disabled' : ''}${isLeftCollapsed ? ' compact' : ''}`}
+                  className={`tool-item${isActive ? ' active' : ''}${isLeftCollapsed ? ' compact' : ''}`}
                   type="button"
-                  onClick={() => {
-                    if (item.enabled) {
-                      selectSection(item.id as WorkspaceSection);
-                    }
-                  }}
-                  disabled={!item.enabled}
+                  onClick={() => selectSection(item.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  aria-label={item.enabled ? item.label : `${item.label} not available yet`}
-                  title={!item.enabled ? 'Not connected yet' : item.label}
+                  aria-label={item.label}
+                  title={item.label}
                 >
                   <span className="tool-item-short">{item.shortLabel}</span>
                   {!isLeftCollapsed ? <span className="tool-item-label">{item.label}</span> : null}
-                  {!isLeftCollapsed && !item.enabled ? <span className="tool-item-state">Soon</span> : null}
                 </button>
               );
             })}
@@ -2336,6 +3746,31 @@ function App() {
                 Pan down
               </button>
             </div>
+            <div className="preview-control-group timeline-control-group">
+              <button className="ghost-button preview-control" type="button" onClick={playPreviewTimeline} disabled={!isPreviewInteractive || isPreviewTimelinePlaying}>
+                Play
+              </button>
+              <button className="ghost-button preview-control" type="button" onClick={pausePreviewTimeline} disabled={!isPreviewInteractive || !isPreviewTimelinePlaying}>
+                Pause
+              </button>
+              <button className="ghost-button preview-control" type="button" onClick={restartPreviewTimeline} disabled={!isPreviewInteractive}>
+                Restart
+              </button>
+              <label className="timeline-scrubber">
+                <span>{previewTimelineSeconds.toFixed(1)}s</span>
+                <input
+                  aria-label="Preview timeline"
+                  type="range"
+                  min="0"
+                  max={previewTimelineMax.toFixed(1)}
+                  step="0.1"
+                  value={Math.min(previewTimelineSeconds, previewTimelineMax)}
+                  onChange={(event) => scrubPreviewTimeline(Number(event.target.value))}
+                  onInput={(event) => scrubPreviewTimeline(Number((event.target as HTMLInputElement).value))}
+                  disabled={!isPreviewInteractive}
+                />
+              </label>
+            </div>
           </div>
 
           <div
@@ -2378,6 +3813,8 @@ function App() {
                     <div
                       ref={previewFrameRef}
                       className="svg-preview-frame"
+                      data-selection-style={selectionAppearancePreset}
+                      style={selectionAppearanceStyle}
                       dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
                     />
                   </div>
@@ -2397,8 +3834,8 @@ function App() {
               {activeSection === 'file'
                 ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
                 : activeSection === 'repair'
-                    ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
-                    : 'Choose an export preset on the left and verify the remaining blockers in the overview tab.'}
+                  ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
+                  : 'Choose an export preset on the left and use the selection inspector for style, animation, and interaction authoring.'}
             </p>
           </div>
         </section>
