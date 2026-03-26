@@ -9,7 +9,9 @@ import {
   getAnimationPresetDefinition,
   inferAnimationDraftForPath,
   listAnimationsForPath,
+  removeAnimationAtIndexFromSource,
   removeWorkbenchAnimationsFromSource,
+  reorderAnimationInSource,
 } from './lib/svg-animation';
 import {
   applyInteractionBehaviorPreset,
@@ -32,7 +34,10 @@ import type {
   AnimationPresetId,
   AnimationReplaceMode,
   AnimationRotateMode,
+  AnimationStackMode,
   AnimationStartMode,
+  AnimationTurnDirection,
+  ElementAnimationSummary,
 } from './lib/svg-animation';
 import {
   buildExportFileName,
@@ -168,8 +173,8 @@ const defaultInspectorTabBySection: Record<WorkspaceSection, InspectorTab> = {
 
 const selectionFacetLabels: Record<SelectionFacet, string> = {
   style: 'Style',
-  animate: 'Animation',
-  interact: 'Interaction',
+  animate: 'Animate',
+  interact: 'Interact',
 };
 
 const inspectorTabLabels: Record<InspectorTab, string> = {
@@ -411,6 +416,38 @@ function getPreviewMotionVector(direction: AnimationMotionDirection, distance: n
   }
 }
 
+function parseAnimationSummarySeconds(value: string | null) {
+  if (!value) {
+    return 0;
+  }
+
+  const normalized = value.includes('+') ? value.split('+').at(-1) ?? value : value;
+  const secondsMatch = normalized.match(/([0-9]*\.?[0-9]+)s/);
+  if (secondsMatch) {
+    return Number(secondsMatch[1]);
+  }
+
+  return Number(normalized) || 0;
+}
+
+function getAnimationDraftTimelineEnd(draft: AnimationDraft) {
+  return draft.delaySeconds + draft.durationSeconds * (draft.repeatMode === 'indefinite' ? 3 : Math.max(1, draft.repeatCount));
+}
+
+function getAnimationSummaryTimelineEnd(animation: ElementAnimationSummary) {
+  const beginSeconds = parseAnimationSummarySeconds(animation.begin);
+  const durationSeconds = parseAnimationSummarySeconds(animation.duration);
+  const repeatCount = animation.repeatCount === 'indefinite'
+    ? 3
+    : Math.max(1, Number.parseInt(animation.repeatCount ?? '1', 10) || 1);
+
+  return beginSeconds + durationSeconds * repeatCount;
+}
+
+function getAnimationStackIndexAfterMove(fromIndex: number, toPosition: number) {
+  return toPosition > fromIndex ? toPosition - 1 : toPosition;
+}
+
 function getSourceMetrics(source: string, selection: SourceSelection) {
   const safeStart = Math.max(0, Math.min(selection.start, source.length));
   const safeEnd = Math.max(safeStart, Math.min(selection.end, source.length));
@@ -500,9 +537,13 @@ function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedPreviewNodeIds, setSelectedPreviewNodeIds] = useState<string[]>([]);
   const [activeAnimationTargetPath, setActiveAnimationTargetPath] = useState<string | null>(null);
+  const [activeAnimationStackIndex, setActiveAnimationStackIndex] = useState<number | null>(null);
   const [animationDraft, setAnimationDraft] = useState<AnimationDraft>(() => createAnimationDraft('fade-in'));
   const [targetAnimationOverrides, setTargetAnimationOverrides] = useState<Record<string, Partial<AnimationDraft>>>({});
   const [animationReplaceMode, setAnimationReplaceMode] = useState<AnimationReplaceMode>('workbench');
+  const [animationStackMode, setAnimationStackMode] = useState<AnimationStackMode>('replace-target');
+  const [draggedAnimationStackIndex, setDraggedAnimationStackIndex] = useState<number | null>(null);
+  const [animationStackDropPosition, setAnimationStackDropPosition] = useState<number | null>(null);
   const [animationMessage, setAnimationMessage] = useState<string | null>(null);
   const [interactionDraft, setInteractionDraft] = useState(() => createInteractionDraft());
   const [interactionMessage, setInteractionMessage] = useState<string | null>(null);
@@ -601,6 +642,9 @@ function App() {
   useEffect(() => {
     if (!analysis) {
       setActiveAnimationTargetPath(null);
+      setActiveAnimationStackIndex(null);
+      setDraggedAnimationStackIndex(null);
+      setAnimationStackDropPosition(null);
       setTargetAnimationOverrides({});
       return;
     }
@@ -794,17 +838,16 @@ function App() {
     .filter((node): node is Analysis['nodesById'][string] => Boolean(node));
   const animationPreset = getAnimationPresetDefinition(animationDraft.presetId);
   const selectedNodeAnimations = selectedNode ? listAnimationsForPath(source, selectedNode.path) : [];
+  const activeAnimationStack = activeAnimationTargetPath ? listAnimationsForPath(source, activeAnimationTargetPath) : [];
+  const activeAnimationStackSummary = activeAnimationStackIndex !== null ? activeAnimationStack[activeAnimationStackIndex] ?? null : null;
   const activeAnimationOverride = activeAnimationTargetPath ? targetAnimationOverrides[activeAnimationTargetPath] ?? null : null;
   const selectedNodeInteraction = selectedNode ? inspectInteractionForPath(source, selectedNode.path) : null;
   const previewTimelineMax = Math.max(
     4,
     ...animationTargetPaths.map((path) => {
-      const override = targetAnimationOverrides[path] ?? {};
-      const duration = override.durationSeconds ?? animationDraft.durationSeconds;
-      const delay = override.delaySeconds ?? animationDraft.delaySeconds;
-      const repeatMode = override.repeatMode ?? animationDraft.repeatMode;
-      const repeatCount = override.repeatCount ?? animationDraft.repeatCount;
-      return delay + duration * (repeatMode === 'indefinite' ? 3 : Math.max(1, repeatCount));
+      const draftTimelineEnd = getAnimationDraftTimelineEnd(getEffectiveAnimationDraft(path));
+      const stackTimelineEnd = Math.max(0, ...listAnimationsForPath(source, path).map((animation) => getAnimationSummaryTimelineEnd(animation)));
+      return Math.max(draftTimelineEnd, stackTimelineEnd);
     }),
   );
   const recentChangedNodes = analysis
@@ -886,6 +929,7 @@ function App() {
   useEffect(() => {
     if (authorableSelectionPaths.length === 0) {
       setActiveAnimationTargetPath(null);
+      setActiveAnimationStackIndex(null);
       return;
     }
 
@@ -898,6 +942,15 @@ function App() {
       return current && authorableSelectionPaths.includes(current) ? current : authorableSelectionPaths[0];
     });
   }, [analysis?.rootNodeId, authorableSelectionPaths, selectedNode]);
+
+  useEffect(() => {
+    if (!activeAnimationTargetPath) {
+      setActiveAnimationStackIndex(null);
+      return;
+    }
+
+    setActiveAnimationStackIndex((current) => (current !== null && current < activeAnimationStack.length ? current : null));
+  }, [activeAnimationStack.length, activeAnimationTargetPath]);
 
   useEffect(() => {
     setInteractionDraft(
@@ -924,8 +977,12 @@ function App() {
     setSourceActionMessage(null);
     setSourceSelection({ start: 0, end: 0 });
     setActiveAnimationTargetPath(null);
+    setActiveAnimationStackIndex(null);
+    setDraggedAnimationStackIndex(null);
+    setAnimationStackDropPosition(null);
     setTargetAnimationOverrides({});
     setAnimationReplaceMode('workbench');
+    setAnimationStackMode('replace-target');
     setAnimationMessage(null);
     setInteractionMessage(null);
     setPreviewTimelineSeconds(0);
@@ -1521,6 +1578,9 @@ function App() {
     inspectSelectedNode(nodeId, { appendSelection: append, syncPreviewSelection: true });
     if (analysis?.nodesById[nodeId]) {
       setActiveAnimationTargetPath(analysis.nodesById[nodeId].path);
+      setActiveAnimationStackIndex(null);
+      setDraggedAnimationStackIndex(null);
+      setAnimationStackDropPosition(null);
     }
   }
 
@@ -1860,7 +1920,7 @@ function App() {
     setAnimationMessage(null);
   }
 
-  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'orbitRadiusX' | 'orbitRadiusY'>, value: number) {
+  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'turnDegrees' | 'orbitRadiusX' | 'orbitRadiusY'>, value: number) {
     setAnimationDraft((current) => ({
       ...current,
       [field]: Number.isFinite(value) ? value : 0,
@@ -1877,8 +1937,8 @@ function App() {
   }
 
   function updateAnimationSelectField(
-    field: keyof Pick<AnimationDraft, 'startMode' | 'easing' | 'motionDirection' | 'rotateMode' | 'repeatMode' | 'fillMode'>,
-    value: AnimationStartMode | AnimationEasing | AnimationMotionDirection | AnimationRotateMode | AnimationDraft['repeatMode'] | AnimationDraft['fillMode'],
+    field: keyof Pick<AnimationDraft, 'startMode' | 'easing' | 'motionDirection' | 'turnDirection' | 'rotateMode' | 'repeatMode' | 'fillMode'>,
+    value: AnimationStartMode | AnimationEasing | AnimationMotionDirection | AnimationTurnDirection | AnimationRotateMode | AnimationDraft['repeatMode'] | AnimationDraft['fillMode'],
   ) {
     setAnimationDraft((current) => ({
       ...current,
@@ -1922,21 +1982,161 @@ function App() {
     });
   }
 
+  function loadAnimationIntoEditor(path: string, animationIndex: number, messageOverride?: string) {
+    const animationSummary = listAnimationsForPath(source, path)[animationIndex] ?? null;
+    if (!animationSummary) {
+      setAnimationMessage('The selected animation could not be resolved from the current SVG source.');
+      return;
+    }
+
+    const inferredDraft = inferAnimationDraftForPath(source, path, animationIndex);
+    const node = nodesByPath?.get(path);
+
+    setActiveAnimationTargetPath(path);
+    setActiveAnimationStackIndex(animationIndex);
+    setDraggedAnimationStackIndex(null);
+    setAnimationStackDropPosition(null);
+    if (node) {
+      inspectSelectedNode(node.id, { syncPreviewSelection: false });
+    }
+
+    if (!inferredDraft) {
+      setAnimationMessage('The selected animation can be inspected, but it cannot be edited with the current workbench presets.');
+      return;
+    }
+
+    setAnimationDraft(inferredDraft);
+    setAnimationReplaceMode(animationSummary.isWorkbenchAuthored ? 'workbench' : 'all');
+    setAnimationStackMode('replace-selected');
+    setAnimationMessage(messageOverride ?? `Loaded ${animationSummary.label.toLowerCase()} from stack item ${animationIndex + 1} for editing.`);
+  }
+
   function loadSelectedNodeAnimationIntoEditor() {
     if (!selectedNode) {
       return;
     }
 
-    const inferredDraft = inferAnimationDraftForPath(source, selectedNode.path);
-    if (!inferredDraft) {
+    const selectedAnimationIndex = selectedNode.path === activeAnimationTargetPath && activeAnimationStackIndex !== null
+      ? activeAnimationStackIndex
+      : 0;
+    if (listAnimationsForPath(source, selectedNode.path).length === 0) {
       setAnimationMessage('No editable animation settings were found on the selected element.');
       return;
     }
 
-    setAnimationDraft(inferredDraft);
-    setActiveAnimationTargetPath(selectedNode.path);
-    setAnimationReplaceMode(selectedNodeAnimations.some((animation) => !animation.isWorkbenchAuthored) ? 'all' : 'workbench');
-    setAnimationMessage('Loaded the selected element animation into the editor for migration or reapply.');
+    loadAnimationIntoEditor(selectedNode.path, selectedAnimationIndex, 'Loaded the selected element animation into the editor for migration or reapply.');
+    setAnimationStackMode('replace-target');
+  }
+
+  function handleAnimationStackDragStart(event: DragEvent<HTMLElement>, animationIndex: number) {
+    const animationSummary = activeAnimationStack[animationIndex] ?? null;
+    if (!animationSummary) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!animationSummary.isWorkbenchAuthored && animationReplaceMode !== 'all') {
+      event.preventDefault();
+      setAnimationMessage('Switch replace mode to all before reordering native animation stack items.');
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `${animationIndex}`);
+    setDraggedAnimationStackIndex(animationIndex);
+    setAnimationStackDropPosition(animationIndex);
+    setAnimationMessage(null);
+  }
+
+  function handleAnimationStackDragEnd() {
+    setDraggedAnimationStackIndex(null);
+    setAnimationStackDropPosition(null);
+  }
+
+  function handleAnimationStackDragOver(event: DragEvent<HTMLElement>, dropPosition: number) {
+    if (draggedAnimationStackIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setAnimationStackDropPosition(dropPosition);
+  }
+
+  function handleAnimationStackDrop(dropPosition: number) {
+    if (draggedAnimationStackIndex === null || !activeAnimationTargetPath) {
+      return;
+    }
+
+    const fromIndex = draggedAnimationStackIndex;
+    const nextActiveIndex = getAnimationStackIndexAfterMove(fromIndex, dropPosition);
+    const movedAnimation = activeAnimationStack[fromIndex] ?? null;
+    setDraggedAnimationStackIndex(null);
+    setAnimationStackDropPosition(null);
+
+    try {
+      const result = reorderAnimationInSource(source, activeAnimationTargetPath, fromIndex, dropPosition, animationReplaceMode);
+      if (result.skippedPaths.length > 0) {
+        setAnimationMessage('The selected animation stack item could not be reordered with the current replace mode.');
+        return;
+      }
+
+      if (result.appliedCount === 0) {
+        setAnimationMessage('The animation stack already matches that order.');
+        return;
+      }
+
+      commitRepairSource(result.source, 'Reordered the animation stack for the active target.');
+      setActiveAnimationStackIndex(nextActiveIndex);
+      setAnimationStackMode('replace-selected');
+      setAnimationMessage(`Moved ${movedAnimation?.label.toLowerCase() ?? 'the animation'} to stack position ${nextActiveIndex + 1}.`);
+    } catch (error) {
+      setAnimationMessage(error instanceof Error ? error.message : 'Unable to reorder the animation stack.');
+    }
+  }
+
+  function deleteAnimationStackItem(animationIndex: number) {
+    if (!activeAnimationTargetPath) {
+      return;
+    }
+
+    const animationSummary = activeAnimationStack[animationIndex] ?? null;
+    if (!animationSummary) {
+      setAnimationMessage('The selected animation stack item could not be resolved from the current SVG source.');
+      return;
+    }
+
+    try {
+      const result = removeAnimationAtIndexFromSource(source, activeAnimationTargetPath, animationIndex, animationReplaceMode);
+      if (result.skippedPaths.length > 0) {
+        setAnimationMessage('The selected animation stack item could not be removed with the current replace mode.');
+        return;
+      }
+
+      const remainingStack = listAnimationsForPath(result.source, activeAnimationTargetPath);
+      const nextActiveIndex = remainingStack.length > 0 ? Math.min(animationIndex, remainingStack.length - 1) : null;
+      const nextSummary = nextActiveIndex !== null ? remainingStack[nextActiveIndex] ?? null : null;
+
+      commitRepairSource(result.source, `Removed ${animationSummary.label.toLowerCase()} from the active animation stack.`);
+      setActiveAnimationStackIndex(nextActiveIndex);
+      setDraggedAnimationStackIndex(null);
+      setAnimationStackDropPosition(null);
+
+      if (nextSummary) {
+        const inferredDraft = inferAnimationDraftForPath(result.source, activeAnimationTargetPath, nextActiveIndex);
+        if (inferredDraft) {
+          setAnimationDraft(inferredDraft);
+        }
+        setAnimationReplaceMode(nextSummary.isWorkbenchAuthored ? 'workbench' : 'all');
+        setAnimationStackMode('replace-selected');
+      } else {
+        setAnimationStackMode('replace-target');
+      }
+
+      setAnimationMessage(`Deleted stack item ${animationIndex + 1}: ${animationSummary.label.toLowerCase()}.`);
+    } catch (error) {
+      setAnimationMessage(error instanceof Error ? error.message : 'Unable to delete the selected animation stack item.');
+    }
   }
 
   function getPreviewSvgElement() {
@@ -1981,18 +2181,34 @@ function App() {
       return;
     }
 
+    if (animationStackMode === 'replace-selected' && activeAnimationStackIndex === null) {
+      setAnimationMessage('Select an animation stack item before editing it in place.');
+      return;
+    }
+
     try {
       const result = applyAnimationDraftsToSource(
         source,
         animationTargetPaths.map((path) => ({ path, draft: getEffectiveAnimationDraft(path) })),
-        animationReplaceMode,
+        {
+          replaceMode: animationReplaceMode,
+          stackMode: animationStackMode,
+          targetAnimationIndex: animationStackMode === 'replace-selected' ? activeAnimationStackIndex : null,
+        },
       );
       const skippedCount = result.skippedPaths.length;
-      commitRepairSource(result.source, `Updated ${result.appliedCount} animation target${result.appliedCount === 1 ? '' : 's'} with ${animationPreset.label.toLowerCase()}.`);
+      const actionLabel = animationStackMode === 'append'
+        ? 'Appended'
+        : animationStackMode === 'prepend'
+          ? 'Prepended'
+          : animationStackMode === 'replace-selected'
+            ? 'Updated'
+            : 'Applied';
+      commitRepairSource(result.source, `${actionLabel} ${animationPreset.label.toLowerCase()} across ${result.appliedCount} animation target${result.appliedCount === 1 ? '' : 's'}.`);
       setAnimationMessage(
         skippedCount > 0
-          ? `Applied ${animationPreset.label.toLowerCase()} to ${result.appliedCount} target${result.appliedCount === 1 ? '' : 's'} and skipped ${skippedCount} unsupported selection${skippedCount === 1 ? '' : 's'}.`
-          : `Applied ${animationPreset.label.toLowerCase()} to ${result.appliedCount} target${result.appliedCount === 1 ? '' : 's'} and refreshed the live preview.`,
+          ? `${actionLabel} ${animationPreset.label.toLowerCase()} to ${result.appliedCount} target${result.appliedCount === 1 ? '' : 's'} and skipped ${skippedCount} unsupported selection${skippedCount === 1 ? '' : 's'}.`
+          : `${actionLabel} ${animationPreset.label.toLowerCase()} to ${result.appliedCount} target${result.appliedCount === 1 ? '' : 's'} and refreshed the live preview.`,
       );
     } catch (error) {
       setAnimationMessage(error instanceof Error ? error.message : 'Unable to apply the selected animation.');
@@ -2008,6 +2224,10 @@ function App() {
     try {
       const result = removeWorkbenchAnimationsFromSource(source, animationTargetPaths, animationReplaceMode);
       commitRepairSource(result.source, result.removedCount > 0 ? `Removed ${result.removedCount} workbench animation node${result.removedCount === 1 ? '' : 's'}.` : 'No workbench-authored animations were found on the selected targets.');
+      setActiveAnimationStackIndex(null);
+      setDraggedAnimationStackIndex(null);
+      setAnimationStackDropPosition(null);
+      setAnimationStackMode('replace-target');
       setAnimationMessage(
         result.removedCount > 0
           ? `Removed ${result.removedCount} workbench animation node${result.removedCount === 1 ? '' : 's'} from the current targets.`
@@ -2199,6 +2419,7 @@ function App() {
                   <button className={`inline-list-button${activeAnimationTargetPath === node.path ? ' active-target' : ''}`} type="button" onClick={() => {
                     inspectSelectedNode(node.id);
                     setActiveAnimationTargetPath(node.path);
+                    setActiveAnimationStackIndex(null);
                   }}>
                     <span className="selection-tag">{node.name}</span>
                     <strong>{getNodeListLabel(node)}</strong>
@@ -2213,23 +2434,111 @@ function App() {
 
         <section className="focus-card section-card animation-section-card">
           <div className="section-header-inline" data-fit-container>
+            <h3>Animation stack</h3>
+            <span className="status-label">{activeAnimationTargetPath ? `${activeAnimationStack.length} item${activeAnimationStack.length === 1 ? '' : 's'}` : 'Select target'}</span>
+          </div>
+          <p className="section-copy">Select a stack item to edit it in place, or change the stack action before applying a new preset to prepend or append a new step.</p>
+          <label className="animation-field animation-field-split">
+            <span>Stack action</span>
+            <select value={animationStackMode} onChange={(event) => setAnimationStackMode(event.target.value as AnimationStackMode)}>
+              <option value="replace-target">Replace target animation stack</option>
+              <option value="replace-selected">Edit selected stack item</option>
+              <option value="append">Append new animation</option>
+              <option value="prepend">Prepend new animation</option>
+            </select>
+          </label>
+          {activeAnimationStackSummary ? (
+            <p className="selection-copy">Editing stack item {activeAnimationStackSummary.index + 1}: {activeAnimationStackSummary.label}.</p>
+          ) : (
+            <p className="selection-copy">No stack item is selected yet. Append or prepend adds a new animation without replacing the current stack.</p>
+          )}
+          {activeAnimationTargetPath ? (
+            activeAnimationStack.length > 0 ? (
+              <ol className="animation-stack-list">
+                {activeAnimationStack.map((animation) => (
+                  <li key={`${activeAnimationTargetPath}-${animation.index}`} className="animation-stack-item">
+                    <div
+                      aria-label={`Drop animation before item ${animation.index + 1}`}
+                      className={`animation-stack-dropzone${draggedAnimationStackIndex !== null && animationStackDropPosition === animation.index ? ' active-dropzone' : ''}`}
+                      onDragOver={(event) => handleAnimationStackDragOver(event, animation.index)}
+                      onDrop={() => handleAnimationStackDrop(animation.index)}
+                    />
+                    <div
+                      aria-label={`Drag stack item ${animation.index + 1}: ${animation.label}`}
+                      className={`animation-stack-row${draggedAnimationStackIndex === animation.index ? ' is-dragging-stack-item' : ''}`}
+                      draggable={animation.isWorkbenchAuthored || animationReplaceMode === 'all'}
+                      onDragStart={(event) => handleAnimationStackDragStart(event, animation.index)}
+                      onDragEnd={handleAnimationStackDragEnd}
+                    >
+                      <button
+                        className={`animation-stack-button${activeAnimationStackIndex === animation.index ? ' active-stack-item' : ''}`}
+                        type="button"
+                        onClick={() => loadAnimationIntoEditor(activeAnimationTargetPath, animation.index)}
+                      >
+                        <span className={`risk-badge ${animation.isWorkbenchAuthored ? 'info' : 'warning'}`}>
+                          {animation.isWorkbenchAuthored ? 'workbench' : 'native'}
+                        </span>
+                        <span className="animation-stack-copy">
+                          <strong>{animation.index + 1}. {animation.label}</strong>
+                          <span>{animation.detail}</span>
+                          <small>
+                            {[
+                              animation.duration ? animation.duration : null,
+                              animation.begin ? `begins ${animation.begin}` : null,
+                              animation.repeatCount ? `repeats ${animation.repeatCount}` : null,
+                              animation.isEditable ? 'editable' : 'summary only',
+                            ].filter(Boolean).join(' • ')}
+                          </small>
+                        </span>
+                      </button>
+                      <div className="animation-stack-item-actions">
+                        <span className="animation-stack-drag-copy" aria-hidden="true">Drag</span>
+                        <button
+                          className="ghost-button inline-button animation-stack-delete-button"
+                          type="button"
+                          onClick={() => deleteAnimationStackItem(animation.index)}
+                          disabled={!animation.isWorkbenchAuthored && animationReplaceMode !== 'all'}
+                          aria-label={`Delete stack item ${animation.index + 1}`}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+                <li className="animation-stack-item">
+                  <div
+                    aria-label="Drop animation at end of stack"
+                    className={`animation-stack-dropzone end-dropzone${draggedAnimationStackIndex !== null && animationStackDropPosition === activeAnimationStack.length ? ' active-dropzone' : ''}`}
+                    onDragOver={(event) => handleAnimationStackDragOver(event, activeAnimationStack.length)}
+                    onDrop={() => handleAnimationStackDrop(activeAnimationStack.length)}
+                  />
+                </li>
+              </ol>
+            ) : (
+              <p className="selection-copy">No direct animation children are attached to the active target yet.</p>
+            )
+          ) : (
+            <p className="selection-copy">Select a target above to inspect and edit its animation stack.</p>
+          )}
+        </section>
+
+        <section className="focus-card section-card animation-section-card">
+          <div className="section-header-inline" data-fit-container>
             <h3>Animation preset</h3>
             <span className="status-label">{animationPreset.label}</span>
           </div>
-          <div className="animation-preset-grid" role="list" aria-label="Animation presets">
-            {animationPresets.map((preset) => (
-              <button
-                key={preset.id}
-                className={`animation-preset-card${animationDraft.presetId === preset.id ? ' active' : ''}`}
-                type="button"
-                onClick={() => setAnimationPreset(preset.id)}
-                aria-pressed={animationDraft.presetId === preset.id}
-              >
-                <strong>{preset.label}</strong>
-                <span>{preset.description}</span>
-              </button>
-            ))}
-          </div>
+          <label className="animation-field animation-field-split">
+            <span>Preset</span>
+            <select value={animationDraft.presetId} onChange={(event) => setAnimationPreset(event.target.value as AnimationPresetId)}>
+              {animationPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="selection-copy">{animationPreset.description}</p>
         </section>
 
         <section className="focus-card section-card animation-section-card">
@@ -2237,23 +2546,23 @@ function App() {
             <h3>Animation details</h3>
             <span className="status-label">Timeline + motion</span>
           </div>
-          <div className="animation-form-grid">
-            <label className="animation-field">
+          <div className="animation-form-grid animation-form-grid-rows">
+            <label className="animation-field animation-field-split">
               <span>Start when</span>
               <select value={animationDraft.startMode} onChange={(event) => updateAnimationSelectField('startMode', event.target.value as AnimationStartMode)}>
                 <option value="load">On load</option>
                 <option value="click">On click</option>
               </select>
             </label>
-            <label className="animation-field">
+            <label className="animation-field animation-field-split">
               <span>Duration (s)</span>
               <input type="number" min="0.1" step="0.1" value={animationDraft.durationSeconds} onChange={(event) => updateAnimationNumberField('durationSeconds', Number(event.target.value))} />
             </label>
-            <label className="animation-field">
+            <label className="animation-field animation-field-split">
               <span>Delay (s)</span>
               <input type="number" min="0" step="0.1" value={animationDraft.delaySeconds} onChange={(event) => updateAnimationNumberField('delaySeconds', Number(event.target.value))} />
             </label>
-            <label className="animation-field">
+            <label className="animation-field animation-field-split">
               <span>Easing</span>
               <select value={animationDraft.easing} onChange={(event) => updateAnimationSelectField('easing', event.target.value as AnimationEasing)}>
                 <option value="linear">Linear</option>
@@ -2262,18 +2571,18 @@ function App() {
                 <option value="ease-in-out">Ease in out</option>
               </select>
             </label>
-            <label className="animation-field">
+            <label className="animation-field animation-field-split">
               <span>Repeat</span>
               <select value={animationDraft.repeatMode} onChange={(event) => updateAnimationSelectField('repeatMode', event.target.value === 'count' ? 'count' : 'indefinite')}>
                 <option value="indefinite">Indefinite</option>
                 <option value="count">Fixed count</option>
               </select>
             </label>
-            <label className="animation-field">
+            <label className="animation-field animation-field-split">
               <span>Repeat count</span>
               <input type="number" min="1" step="1" value={animationDraft.repeatCount} onChange={(event) => updateAnimationNumberField('repeatCount', Number(event.target.value))} disabled={animationDraft.repeatMode === 'indefinite'} />
             </label>
-            <label className="animation-field">
+            <label className="animation-field animation-field-split">
               <span>Fill mode</span>
               <select value={animationDraft.fillMode} onChange={(event) => updateAnimationSelectField('fillMode', event.target.value === 'freeze' ? 'freeze' : 'remove')}>
                 <option value="remove">Remove</option>
@@ -2282,7 +2591,7 @@ function App() {
             </label>
             {animationDraft.presetId === 'drift' ? (
               <>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Direction</span>
                   <select value={animationDraft.motionDirection} onChange={(event) => updateAnimationSelectField('motionDirection', event.target.value as AnimationMotionDirection)}>
                     <option value="up">Up</option>
@@ -2295,22 +2604,36 @@ function App() {
                     <option value="down-right">Down right</option>
                   </select>
                 </label>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Distance</span>
                   <input type="number" min="0" step="1" value={animationDraft.motionDistance} onChange={(event) => updateAnimationNumberField('motionDistance', Number(event.target.value))} />
                 </label>
               </>
+            ) : animationDraft.presetId === 'rotate' ? (
+              <>
+                <label className="animation-field animation-field-split">
+                  <span>Direction</span>
+                  <select value={animationDraft.turnDirection} onChange={(event) => updateAnimationSelectField('turnDirection', event.target.value as AnimationTurnDirection)}>
+                    <option value="clockwise">Clockwise</option>
+                    <option value="counterclockwise">Counterclockwise</option>
+                  </select>
+                </label>
+                <label className="animation-field animation-field-split">
+                  <span>Degrees</span>
+                  <input type="number" min="0" step="1" value={animationDraft.turnDegrees} onChange={(event) => updateAnimationNumberField('turnDegrees', Number(event.target.value))} />
+                </label>
+              </>
             ) : animationDraft.presetId === 'orbit' ? (
               <>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Orbit radius X</span>
                   <input type="number" min="1" step="1" value={animationDraft.orbitRadiusX} onChange={(event) => updateAnimationNumberField('orbitRadiusX', Number(event.target.value))} />
                 </label>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Orbit radius Y</span>
                   <input type="number" min="1" step="1" value={animationDraft.orbitRadiusY} onChange={(event) => updateAnimationNumberField('orbitRadiusY', Number(event.target.value))} />
                 </label>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Rotate with path</span>
                   <select value={animationDraft.rotateMode} onChange={(event) => updateAnimationSelectField('rotateMode', event.target.value as AnimationRotateMode)}>
                     <option value="auto">Auto</option>
@@ -2320,31 +2643,31 @@ function App() {
               </>
             ) : animationDraft.presetId === 'color-shift' ? (
               <>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>From color</span>
                   <input type="text" value={animationDraft.colorFrom} onChange={(event) => updateAnimationTextField('colorFrom', event.target.value)} />
                 </label>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Middle color</span>
                   <input type="text" value={animationDraft.colorMid} onChange={(event) => updateAnimationTextField('colorMid', event.target.value)} />
                 </label>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>To color</span>
                   <input type="text" value={animationDraft.colorTo} onChange={(event) => updateAnimationTextField('colorTo', event.target.value)} />
                 </label>
               </>
             ) : (
               <>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>Start opacity</span>
                   <input type="number" min="0" max="1" step="0.05" value={animationDraft.startOpacity} onChange={(event) => updateAnimationNumberField('startOpacity', Number(event.target.value))} />
                 </label>
-                <label className="animation-field">
+                <label className="animation-field animation-field-split">
                   <span>{animationDraft.presetId === 'fade-in' ? 'End opacity' : 'Mid opacity'}</span>
                   <input type="number" min="0" max="1" step="0.05" value={animationDraft.presetId === 'fade-in' ? animationDraft.endOpacity : animationDraft.midOpacity} onChange={(event) => updateAnimationNumberField(animationDraft.presetId === 'fade-in' ? 'endOpacity' : 'midOpacity', Number(event.target.value))} />
                 </label>
                 {animationDraft.presetId !== 'fade-in' ? (
-                  <label className="animation-field">
+                  <label className="animation-field animation-field-split">
                     <span>End opacity</span>
                     <input type="number" min="0" max="1" step="0.05" value={animationDraft.endOpacity} onChange={(event) => updateAnimationNumberField('endOpacity', Number(event.target.value))} />
                   </label>
@@ -2360,6 +2683,9 @@ function App() {
             <div className="animation-preview-stage">
               {(() => {
                 const previewMotion = getPreviewMotionVector(animationDraft.motionDirection, animationDraft.motionDistance);
+                const previewTurnDegrees = animationDraft.turnDirection === 'counterclockwise'
+                  ? animationDraft.turnDegrees * -1
+                  : animationDraft.turnDegrees;
                 const previewStyle: CSSProperties & Record<string, string> = {
                   animationDuration: `${Math.max(0.1, animationDraft.durationSeconds)}s`,
                   animationDelay: `${Math.max(0, animationDraft.delaySeconds)}s`,
@@ -2371,6 +2697,7 @@ function App() {
                   '--animation-preview-x': `${previewMotion.x}px`,
                   '--animation-preview-y': `${previewMotion.y}px`,
                   '--animation-preview-distance': `${animationDraft.motionDistance}px`,
+                  '--animation-preview-rotate': `${previewTurnDegrees}deg`,
                   '--animation-preview-orbit-x': `${animationDraft.orbitRadiusX}px`,
                   '--animation-preview-orbit-y': `${animationDraft.orbitRadiusY}px`,
                   '--animation-preview-color-from': animationDraft.colorFrom,
@@ -2410,6 +2737,21 @@ function App() {
                     <span>Distance override</span>
                     <input type="number" min="0" step="1" value={activeAnimationOverride?.motionDistance ?? animationDraft.motionDistance} onChange={(event) => updateActiveTargetOverride('motionDistance', Number(event.target.value))} />
                   </label>
+                ) : null}
+                {animationDraft.presetId === 'rotate' ? (
+                  <>
+                    <label className="animation-field">
+                      <span>Direction override</span>
+                      <select value={activeAnimationOverride?.turnDirection ?? animationDraft.turnDirection} onChange={(event) => updateActiveTargetOverride('turnDirection', event.target.value as AnimationTurnDirection)}>
+                        <option value="clockwise">Clockwise</option>
+                        <option value="counterclockwise">Counterclockwise</option>
+                      </select>
+                    </label>
+                    <label className="animation-field">
+                      <span>Degrees override</span>
+                      <input type="number" min="0" step="1" value={activeAnimationOverride?.turnDegrees ?? animationDraft.turnDegrees} onChange={(event) => updateActiveTargetOverride('turnDegrees', Number(event.target.value))} />
+                    </label>
+                  </>
                 ) : null}
                 {animationDraft.presetId === 'orbit' ? (
                   <>
@@ -2456,7 +2798,7 @@ function App() {
             <h3>Preview and apply</h3>
             <span className="status-label">Source-backed</span>
           </div>
-          <p className="section-copy">Applying an animation updates the SVG source and refreshes the main preview immediately. Reapplying replaces only workbench-authored animation nodes on the selected targets.</p>
+          <p className="section-copy">Applying an animation updates the SVG source and refreshes the main preview immediately. The selected stack action controls whether the preset replaces, prepends, appends, or edits a specific animation step.</p>
           <label className="animation-field checkbox-field">
             <span>Replace mode</span>
             <select value={animationReplaceMode} onChange={(event) => setAnimationReplaceMode(event.target.value === 'all' ? 'all' : 'workbench')}>
@@ -2469,7 +2811,7 @@ function App() {
               Preview and apply to {animationTargetPaths.length || 0} target{animationTargetPaths.length === 1 ? '' : 's'}
             </button>
             <button className="ghost-button" type="button" onClick={clearWorkbenchAnimations} disabled={animationTargetPaths.length === 0}>
-              Remove workbench animations
+              Clear animation stack
             </button>
           </div>
           {animationMessage ? <p className="repair-note">{animationMessage}</p> : null}
@@ -3279,17 +3621,26 @@ function App() {
                       {selectedNodeAnimations.length > 0 ? (
                         selectedNodeAnimations.map((animation, index) => (
                           <li key={`${animation.nodeName}-${animation.label}-${index}`} data-fit-container>
-                            <span className={`risk-badge ${animation.isWorkbenchAuthored ? 'info' : 'warning'}`}>
-                              {animation.isWorkbenchAuthored ? 'workbench' : 'native'}
-                            </span>
-                            <span>
-                              <strong>{animation.label}</strong>
-                              <br />
-                              {animation.detail}
-                              {animation.duration ? ` • ${animation.duration}` : ''}
-                              {animation.begin ? ` • begins ${animation.begin}` : ''}
-                              {animation.repeatCount ? ` • repeats ${animation.repeatCount}` : ''}
-                            </span>
+                            <button
+                              className="inline-list-button animation-summary-button"
+                              type="button"
+                              onClick={() => {
+                                setSelectionFacet('animate');
+                                loadAnimationIntoEditor(selectedNode.path, animation.index);
+                              }}
+                            >
+                              <span className={`risk-badge ${animation.isWorkbenchAuthored ? 'info' : 'warning'}`}>
+                                {animation.isWorkbenchAuthored ? 'workbench' : 'native'}
+                              </span>
+                              <span>
+                                <strong>{animation.label}</strong>
+                                <br />
+                                {animation.detail}
+                                {animation.duration ? ` • ${animation.duration}` : ''}
+                                {animation.begin ? ` • begins ${animation.begin}` : ''}
+                                {animation.repeatCount ? ` • repeats ${animation.repeatCount}` : ''}
+                              </span>
+                            </button>
                           </li>
                         ))
                       ) : (

@@ -1144,27 +1144,32 @@ textarea {
 .selection-facet-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+  align-items: end;
+  padding: 6px 6px 0;
+  border-bottom: 1px solid rgba(19, 38, 47, 0.12);
 }
 
 .selection-facet-tab {
-  border-radius: 16px;
+  border-radius: 16px 16px 0 0;
   border: 1px solid rgba(19, 38, 47, 0.08);
-  background: rgba(255, 255, 255, 0.74);
-  color: #13262f;
-  padding: 0.78rem 0.9rem;
+  border-bottom: 0;
+  background: rgba(247, 242, 234, 0.72);
+  color: #5f5751;
+  padding: 0.78rem 0.9rem 0.72rem;
   cursor: pointer;
   transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
 }
 
 .selection-facet-tab.active {
-  background: #13262f;
-  border-color: #13262f;
-  color: #f7f2ea;
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(19, 38, 47, 0.14);
+  color: #13262f;
+  transform: translateY(1px);
 }
 
 .selection-facet-panel {
-  margin-top: 14px;
+  margin-top: 0;
   display: grid;
   gap: 12px;
 }
@@ -1409,6 +1414,14 @@ textarea {
   margin-top: 0;
 }
 
+.animation-summary-button {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: rgba(247, 242, 234, 0.62);
+}
+
 .inspector-target-actions {
   margin-top: 12px;
 }
@@ -1436,7 +1449,7 @@ textarea {
 
 .interaction-preset-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -1491,6 +1504,106 @@ textarea {
   padding: 0;
   display: grid;
   gap: 10px;
+}
+
+.animation-stack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.animation-stack-item {
+  display: grid;
+  gap: 8px;
+}
+
+.animation-stack-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.animation-stack-row.is-dragging-stack-item {
+  opacity: 0.56;
+}
+
+.animation-stack-button {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: rgba(247, 242, 234, 0.78);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.animation-stack-button:hover,
+.animation-stack-button:focus-visible,
+.animation-summary-button:hover,
+.animation-summary-button:focus-visible {
+  border-color: rgba(31, 122, 140, 0.24);
+  box-shadow: 0 10px 24px rgba(19, 38, 47, 0.08);
+}
+
+.animation-stack-button.active-stack-item {
+  background: rgba(11, 110, 79, 0.12);
+  border-color: rgba(11, 110, 79, 0.22);
+}
+
+.animation-stack-copy {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.animation-stack-copy span,
+.animation-stack-copy small {
+  color: #5f5751;
+}
+
+.animation-stack-item-actions {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  justify-items: end;
+}
+
+.animation-stack-drag-copy {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c746d;
+}
+
+.animation-stack-delete-button {
+  min-width: 88px;
+}
+
+.animation-stack-dropzone {
+  min-height: 12px;
+  border-radius: 999px;
+  border: 1px dashed rgba(19, 38, 47, 0.12);
+  background: rgba(255, 255, 255, 0.42);
+  transition: border-color 120ms ease, background-color 120ms ease, min-height 120ms ease;
+}
+
+.animation-stack-dropzone.active-dropzone {
+  min-height: 18px;
+  border-color: rgba(31, 122, 140, 0.48);
+  background: rgba(31, 122, 140, 0.14);
+}
+
+.animation-stack-dropzone.end-dropzone {
+  margin-top: -2px;
 }
 
 .animation-target-list li {
@@ -1553,6 +1666,10 @@ textarea {
   gap: 12px;
 }
 
+.animation-form-grid.animation-form-grid-rows {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .override-grid {
   margin-top: 2px;
 }
@@ -1568,6 +1685,16 @@ textarea {
   color: #5f5751;
 }
 
+.animation-field.animation-field-split {
+  grid-template-columns: minmax(112px, 180px) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+}
+
+.animation-field.animation-field-split > span {
+  margin: 0;
+}
+
 .animation-field input,
 .animation-field select {
   width: 100%;
@@ -1577,6 +1704,11 @@ textarea {
   background: rgba(255, 255, 255, 0.86);
   padding: 0.72rem 0.85rem;
   color: #13262f;
+}
+
+.animation-field.animation-field-split input,
+.animation-field.animation-field-split select {
+  grid-column: 2;
 }
 
 .animation-preview-card {
@@ -1636,6 +1768,10 @@ textarea {
   animation-name: animation-preview-blink;
 }
 
+.animation-preview-swatch.preset-rotate {
+  animation-name: animation-preview-rotate;
+}
+
 .animation-preview-swatch.preset-orbit {
   animation-name: animation-preview-orbit;
 }
@@ -1693,6 +1829,16 @@ textarea {
 
   100% {
     opacity: var(--animation-preview-end, 1);
+  }
+}
+
+@keyframes animation-preview-rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(var(--animation-preview-rotate, 180deg));
   }
 }
 
@@ -1940,8 +2086,18 @@ textarea {
   .interaction-preset-grid,
   .selection-appearance-legend,
   .selection-facet-tabs,
-  .interaction-form-grid {
+  .interaction-form-grid,
+  .animation-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .animation-field.animation-field-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .animation-field.animation-field-split input,
+  .animation-field.animation-field-split select {
+    grid-column: auto;
   }
 
   .svg-preview-frame,

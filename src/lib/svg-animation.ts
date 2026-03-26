@@ -1,11 +1,13 @@
-export type AnimationPresetId = 'fade-in' | 'pulse' | 'drift' | 'blink' | 'orbit' | 'color-shift';
+export type AnimationPresetId = 'fade-in' | 'pulse' | 'drift' | 'blink' | 'rotate' | 'orbit' | 'color-shift';
 
 export type AnimationRepeatMode = 'indefinite' | 'count';
 export type AnimationStartMode = 'load' | 'click';
 export type AnimationEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
 export type AnimationMotionDirection = 'up' | 'down' | 'left' | 'right' | 'up-right' | 'up-left' | 'down-right' | 'down-left';
+export type AnimationTurnDirection = 'clockwise' | 'counterclockwise';
 export type AnimationRotateMode = 'none' | 'auto';
 export type AnimationReplaceMode = 'workbench' | 'all';
+export type AnimationStackMode = 'replace-target' | 'replace-selected' | 'append' | 'prepend';
 
 export type AnimationDraft = {
   presetId: AnimationPresetId;
@@ -21,6 +23,8 @@ export type AnimationDraft = {
   endOpacity: number;
   motionDirection: AnimationMotionDirection;
   motionDistance: number;
+  turnDirection: AnimationTurnDirection;
+  turnDegrees: number;
   orbitRadiusX: number;
   orbitRadiusY: number;
   rotateMode: AnimationRotateMode;
@@ -48,7 +52,14 @@ export type AnimationTargetDraft = {
   draft: AnimationDraft;
 };
 
+export type AnimationApplyOptions = {
+  replaceMode?: AnimationReplaceMode;
+  stackMode?: AnimationStackMode;
+  targetAnimationIndex?: number | null;
+};
+
 export type ElementAnimationSummary = {
+  index: number;
   nodeName: 'animate' | 'animateTransform' | 'animateMotion' | 'set';
   presetId: AnimationPresetId | null;
   label: string;
@@ -57,6 +68,7 @@ export type ElementAnimationSummary = {
   duration: string | null;
   repeatCount: string | null;
   isWorkbenchAuthored: boolean;
+  isEditable: boolean;
 };
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -101,6 +113,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       endOpacity: 1,
       motionDirection: 'up',
       motionDistance: 20,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -127,6 +141,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       endOpacity: 1,
       motionDirection: 'up',
       motionDistance: 14,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -153,6 +169,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       endOpacity: 1,
       motionDirection: 'up-right',
       motionDistance: 24,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -179,6 +197,36 @@ export const animationPresets: AnimationPresetDefinition[] = [
       endOpacity: 1,
       motionDirection: 'up',
       motionDistance: 12,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
+      orbitRadiusX: 20,
+      orbitRadiusY: 12,
+      rotateMode: 'none',
+      colorFrom: '#ff8a3d',
+      colorMid: '#ffd166',
+      colorTo: '#1f7a8c',
+    },
+  },
+  {
+    id: 'rotate',
+    label: 'Rotate',
+    description: 'Spin the target by a configurable angle and direction.',
+    defaults: {
+      presetId: 'rotate',
+      durationSeconds: 1.6,
+      delaySeconds: 0,
+      repeatMode: 'indefinite',
+      repeatCount: 2,
+      fillMode: 'remove',
+      startMode: 'load',
+      easing: 'ease-in-out',
+      startOpacity: 1,
+      midOpacity: 1,
+      endOpacity: 1,
+      motionDirection: 'up',
+      motionDistance: 20,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -205,6 +253,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       endOpacity: 1,
       motionDirection: 'right',
       motionDistance: 24,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
       orbitRadiusX: 24,
       orbitRadiusY: 14,
       rotateMode: 'auto',
@@ -231,6 +281,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       endOpacity: 1,
       motionDirection: 'up',
       motionDistance: 20,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -326,12 +378,19 @@ function isAnimationNode(element: Element) {
   return animationNodeNames.has(getLocalTagName(element).toLowerCase());
 }
 
+function getDirectAnimationChildren(target: Element) {
+  return Array.from(target.children).filter((child) => isAnimationNode(child));
+}
+
+function canReplaceAnimationNode(node: Element, replaceMode: AnimationReplaceMode) {
+  return node.getAttribute(WORKBENCH_ANIMATION_ATTRIBUTE) === 'true' || replaceMode === 'all';
+}
+
 function removeAnimationNodes(target: Element, replaceMode: AnimationReplaceMode) {
   let removedCount = 0;
 
-  Array.from(target.children).forEach((child) => {
-    const isWorkbench = child.getAttribute(WORKBENCH_ANIMATION_ATTRIBUTE) === 'true';
-    if (isWorkbench || (replaceMode === 'all' && isAnimationNode(child))) {
+  getDirectAnimationChildren(target).forEach((child) => {
+    if (canReplaceAnimationNode(child, replaceMode)) {
       child.remove();
       removedCount += 1;
     }
@@ -505,6 +564,25 @@ function createDriftAnimation(documentRoot: XMLDocument, draft: AnimationDraft) 
   }, draft.easing, 2));
 }
 
+function getSignedTurnDegrees(direction: AnimationTurnDirection, degrees: number) {
+  const safeDegrees = clampPositive(degrees, 180);
+  return direction === 'counterclockwise' ? -safeDegrees : safeDegrees;
+}
+
+function createRotateAnimation(documentRoot: XMLDocument, draft: AnimationDraft) {
+  const signedDegrees = getSignedTurnDegrees(draft.turnDirection, draft.turnDegrees);
+
+  return createAnimationElement(documentRoot, 'animateTransform', withSplineAttributes({
+    [WORKBENCH_PRESET_ATTRIBUTE]: draft.presetId,
+    ...getCommonAnimationAttributes(draft),
+    additive: 'sum',
+    attributeName: 'transform',
+    type: 'rotate',
+    values: `0; ${signedDegrees}`,
+    keyTimes: '0;1',
+  }, draft.easing, 1));
+}
+
 function createOrbitAnimation(documentRoot: XMLDocument, draft: AnimationDraft) {
   const radiusX = clampPositive(draft.orbitRadiusX, 20);
   const radiusY = clampPositive(draft.orbitRadiusY, 12);
@@ -538,10 +616,94 @@ function createAnimationNodes(documentRoot: XMLDocument, draft: AnimationDraft) 
       return [createOpacityAnimation(documentRoot, draft, false)];
     case 'drift':
       return [createDriftAnimation(documentRoot, draft)];
+    case 'rotate':
+      return [createRotateAnimation(documentRoot, draft)];
     case 'orbit':
       return [createOrbitAnimation(documentRoot, draft)];
     case 'color-shift':
       return [createColorShiftAnimation(documentRoot, draft)];
+  }
+}
+
+function normalizeAnimationApplyOptions(options?: AnimationReplaceMode | AnimationApplyOptions) {
+  if (!options || typeof options === 'string') {
+    return {
+      replaceMode: options ?? 'workbench',
+      stackMode: 'replace-target' as AnimationStackMode,
+      targetAnimationIndex: null,
+    };
+  }
+
+  return {
+    replaceMode: options.replaceMode ?? 'workbench',
+    stackMode: options.stackMode ?? 'replace-target',
+    targetAnimationIndex: typeof options.targetAnimationIndex === 'number' ? options.targetAnimationIndex : null,
+  };
+}
+
+function insertAnimationNodesBefore(target: Element, referenceNode: Element | null, animationNodes: Element[]) {
+  animationNodes.forEach((node) => target.insertBefore(node, referenceNode));
+}
+
+function moveAnimationNode(target: Element, fromIndex: number, toPosition: number) {
+  const directAnimationChildren = getDirectAnimationChildren(target);
+  const animationNode = directAnimationChildren[fromIndex];
+  if (!animationNode) {
+    return false;
+  }
+
+  const boundedToPosition = Math.max(0, Math.min(toPosition, directAnimationChildren.length));
+  const adjustedToIndex = boundedToPosition > fromIndex ? boundedToPosition - 1 : boundedToPosition;
+  if (adjustedToIndex === fromIndex) {
+    return false;
+  }
+
+  animationNode.remove();
+  const remainingAnimationChildren = getDirectAnimationChildren(target);
+  const referenceNode = remainingAnimationChildren[adjustedToIndex] ?? null;
+  target.insertBefore(animationNode, referenceNode);
+  return true;
+}
+
+function applyAnimationNodesToTarget(
+  target: Element,
+  documentRoot: XMLDocument,
+  draft: AnimationDraft,
+  options: ReturnType<typeof normalizeAnimationApplyOptions>,
+) {
+  const animationNodes = createAnimationNodes(documentRoot, draft);
+
+  switch (options.stackMode) {
+    case 'append':
+      animationNodes.forEach((node) => target.appendChild(node));
+      return { applied: true, removedCount: 0 };
+    case 'prepend': {
+      const firstAnimationChild = getDirectAnimationChildren(target)[0] ?? null;
+      insertAnimationNodesBefore(target, firstAnimationChild, animationNodes);
+      return { applied: true, removedCount: 0 };
+    }
+    case 'replace-selected': {
+      const targetAnimationIndex = options.targetAnimationIndex;
+      if (targetAnimationIndex === null || targetAnimationIndex < 0) {
+        return { applied: false, removedCount: 0 };
+      }
+
+      const directAnimationChildren = getDirectAnimationChildren(target);
+      const selectedAnimationNode = directAnimationChildren[targetAnimationIndex];
+      if (!selectedAnimationNode || !canReplaceAnimationNode(selectedAnimationNode, options.replaceMode)) {
+        return { applied: false, removedCount: 0 };
+      }
+
+      insertAnimationNodesBefore(target, selectedAnimationNode, animationNodes);
+      selectedAnimationNode.remove();
+      return { applied: true, removedCount: 1 };
+    }
+    case 'replace-target':
+    default: {
+      const removedCount = removeAnimationNodes(target, options.replaceMode);
+      animationNodes.forEach((node) => target.appendChild(node));
+      return { applied: true, removedCount };
+    }
   }
 }
 
@@ -598,6 +760,71 @@ function buildDraftBase(presetId: AnimationPresetId, node: Element) {
   });
 }
 
+function inferAnimationDraftFromNode(animationNode: Element): AnimationDraft | null {
+  const presetAttribute = animationNode.getAttribute(WORKBENCH_PRESET_ATTRIBUTE);
+  if (presetAttribute && animationPresets.some((preset) => preset.id === presetAttribute)) {
+    return buildDraftBase(presetAttribute as AnimationPresetId, animationNode);
+  }
+
+  const nodeName = getLocalTagName(animationNode);
+  if (nodeName === 'animateMotion') {
+    return buildDraftBase('orbit', animationNode);
+  }
+
+  if (nodeName === 'animateTransform' && animationNode.getAttribute('type') === 'rotate') {
+    const values = animationNode.getAttribute('values')?.split(';').map((value) => Number(value.trim().split(/\s+/)[0])) ?? [];
+    const targetDegrees = values.at(-1) ?? 0;
+    return createAnimationDraft('rotate', {
+      ...buildDraftBase('rotate', animationNode),
+      turnDirection: targetDegrees < 0 ? 'counterclockwise' : 'clockwise',
+      turnDegrees: Number(Math.abs(targetDegrees).toFixed(2)),
+    });
+  }
+
+  if (nodeName === 'animateTransform' && animationNode.getAttribute('type') === 'translate') {
+    const values = animationNode.getAttribute('values')?.split(';').map((value) => value.trim()) ?? [];
+    const middle = values[1]?.split(/\s+/).map(Number) ?? [0, 0];
+    const x = middle[0] ?? 0;
+    const y = middle[1] ?? 0;
+    return createAnimationDraft('drift', {
+      ...buildDraftBase('drift', animationNode),
+      motionDirection: inferMotionDirection(x, y),
+      motionDistance: Number(Math.max(Math.abs(x), Math.abs(y)).toFixed(2)),
+    });
+  }
+
+  if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'fill') {
+    const values = animationNode.getAttribute('values')?.split(';').map((value) => value.trim()) ?? [];
+    return createAnimationDraft('color-shift', {
+      ...buildDraftBase('color-shift', animationNode),
+      colorFrom: values[0] ?? '#ff8a3d',
+      colorMid: values[1] ?? values[0] ?? '#ffd166',
+      colorTo: values[2] ?? values[1] ?? values[0] ?? '#1f7a8c',
+    });
+  }
+
+  if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'opacity') {
+    const values = animationNode.getAttribute('values')?.split(';').map((value) => Number(value.trim())) ?? [];
+    if (values.length >= 3) {
+      const presetId = values[1] <= 0.05 ? 'blink' : 'pulse';
+      return createAnimationDraft(presetId, {
+        ...buildDraftBase(presetId, animationNode),
+        startOpacity: values[0] ?? 1,
+        midOpacity: values[1] ?? 0.4,
+        endOpacity: values[2] ?? 1,
+      });
+    }
+
+    return createAnimationDraft('fade-in', {
+      ...buildDraftBase('fade-in', animationNode),
+      startOpacity: Number(animationNode.getAttribute('from') ?? 0),
+      endOpacity: Number(animationNode.getAttribute('to') ?? 1),
+    });
+  }
+
+  return null;
+}
+
 export function getAnimationPresetDefinition(presetId: AnimationPresetId) {
   return animationPresets.find((preset) => preset.id === presetId) ?? animationPresets[0];
 }
@@ -618,6 +845,8 @@ export function createAnimationDraft(presetId: AnimationPresetId, current?: Part
     endOpacity: current?.endOpacity ?? defaults.endOpacity,
     motionDirection: current?.motionDirection ?? defaults.motionDirection,
     motionDistance: current?.motionDistance ?? defaults.motionDistance,
+    turnDirection: current?.turnDirection ?? defaults.turnDirection,
+    turnDegrees: current?.turnDegrees ?? defaults.turnDegrees,
     orbitRadiusX: current?.orbitRadiusX ?? defaults.orbitRadiusX,
     orbitRadiusY: current?.orbitRadiusY ?? defaults.orbitRadiusY,
     rotateMode: current?.rotateMode ?? defaults.rotateMode,
@@ -638,6 +867,8 @@ export function describeAnimationDraft(draft: AnimationDraft) {
       return `Blink between ${clampOpacity(draft.startOpacity)} and ${clampOpacity(draft.midOpacity)} every ${formatSeconds(draft.durationSeconds)}.`;
     case 'drift':
       return `Move ${draft.motionDirection} by ${clampPositive(draft.motionDistance, 0)} units over ${formatSeconds(draft.durationSeconds)}.`;
+    case 'rotate':
+      return `Rotate ${draft.turnDirection} by ${clampPositive(draft.turnDegrees, 180)} degrees over ${formatSeconds(draft.durationSeconds)}.`;
     case 'orbit':
       return `Orbit on a ${clampPositive(draft.orbitRadiusX, 20)} by ${clampPositive(draft.orbitRadiusY, 12)} path over ${formatSeconds(draft.durationSeconds)}.`;
     case 'color-shift':
@@ -653,15 +884,15 @@ export function listAnimationsForPath(source: string, targetPath: string): Eleme
       return [];
     }
 
-    return Array.from(target.children)
-      .filter((child) => isAnimationNode(child))
-      .map((child) => {
+    return getDirectAnimationChildren(target)
+      .map((child, index) => {
         const nodeName = getLocalTagName(child) as ElementAnimationSummary['nodeName'];
         const presetValue = child.getAttribute(WORKBENCH_PRESET_ATTRIBUTE);
         const presetId = animationPresets.some((preset) => preset.id === presetValue)
           ? presetValue as AnimationPresetId
           : null;
         return {
+          index,
           nodeName,
           presetId,
           label: getAnimationLabel(presetId, nodeName),
@@ -670,6 +901,7 @@ export function listAnimationsForPath(source: string, targetPath: string): Eleme
           duration: child.getAttribute('dur'),
           repeatCount: child.getAttribute('repeatCount'),
           isWorkbenchAuthored: child.getAttribute(WORKBENCH_ANIMATION_ATTRIBUTE) === 'true',
+          isEditable: inferAnimationDraftFromNode(child) !== null,
         };
       });
   } catch {
@@ -677,7 +909,7 @@ export function listAnimationsForPath(source: string, targetPath: string): Eleme
   }
 }
 
-export function inferAnimationDraftForPath(source: string, targetPath: string): AnimationDraft | null {
+export function inferAnimationDraftForPath(source: string, targetPath: string, animationIndex = 0): AnimationDraft | null {
   try {
     const root = parseSvgRoot(source);
     const target = resolveElementByPath(root, targetPath);
@@ -685,63 +917,12 @@ export function inferAnimationDraftForPath(source: string, targetPath: string): 
       return null;
     }
 
-    const animationNode = Array.from(target.children).find((child) => isAnimationNode(child));
+    const animationNode = getDirectAnimationChildren(target)[animationIndex];
     if (!animationNode) {
       return null;
     }
 
-    const presetAttribute = animationNode.getAttribute(WORKBENCH_PRESET_ATTRIBUTE);
-    if (presetAttribute && animationPresets.some((preset) => preset.id === presetAttribute)) {
-      return buildDraftBase(presetAttribute as AnimationPresetId, animationNode);
-    }
-
-    const nodeName = getLocalTagName(animationNode);
-    if (nodeName === 'animateMotion') {
-      return buildDraftBase('orbit', animationNode);
-    }
-
-    if (nodeName === 'animateTransform' && animationNode.getAttribute('type') === 'translate') {
-      const values = animationNode.getAttribute('values')?.split(';').map((value) => value.trim()) ?? [];
-      const middle = values[1]?.split(/\s+/).map(Number) ?? [0, 0];
-      const x = middle[0] ?? 0;
-      const y = middle[1] ?? 0;
-      return createAnimationDraft('drift', {
-        ...buildDraftBase('drift', animationNode),
-        motionDirection: inferMotionDirection(x, y),
-        motionDistance: Number(Math.max(Math.abs(x), Math.abs(y)).toFixed(2)),
-      });
-    }
-
-    if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'fill') {
-      const values = animationNode.getAttribute('values')?.split(';').map((value) => value.trim()) ?? [];
-      return createAnimationDraft('color-shift', {
-        ...buildDraftBase('color-shift', animationNode),
-        colorFrom: values[0] ?? '#ff8a3d',
-        colorMid: values[1] ?? values[0] ?? '#ffd166',
-        colorTo: values[2] ?? values[1] ?? values[0] ?? '#1f7a8c',
-      });
-    }
-
-    if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'opacity') {
-      const values = animationNode.getAttribute('values')?.split(';').map((value) => Number(value.trim())) ?? [];
-      if (values.length >= 3) {
-        const presetId = values[1] <= 0.05 ? 'blink' : 'pulse';
-        return createAnimationDraft(presetId, {
-          ...buildDraftBase(presetId, animationNode),
-          startOpacity: values[0] ?? 1,
-          midOpacity: values[1] ?? 0.4,
-          endOpacity: values[2] ?? 1,
-        });
-      }
-
-      return createAnimationDraft('fade-in', {
-        ...buildDraftBase('fade-in', animationNode),
-        startOpacity: Number(animationNode.getAttribute('from') ?? 0),
-        endOpacity: Number(animationNode.getAttribute('to') ?? 1),
-      });
-    }
-
-    return null;
+    return inferAnimationDraftFromNode(animationNode);
   } catch {
     return null;
   }
@@ -750,9 +931,10 @@ export function inferAnimationDraftForPath(source: string, targetPath: string): 
 export function applyAnimationDraftsToSource(
   source: string,
   targetDrafts: AnimationTargetDraft[],
-  replaceMode: AnimationReplaceMode = 'workbench',
+  options?: AnimationReplaceMode | AnimationApplyOptions,
 ): AnimationMutationResult {
   const root = parseSvgRoot(source);
+  const resolvedOptions = normalizeAnimationApplyOptions(options);
   let appliedCount = 0;
   let removedCount = 0;
   const skippedPaths: string[] = [];
@@ -764,9 +946,13 @@ export function applyAnimationDraftsToSource(
       return;
     }
 
-    removedCount += removeAnimationNodes(target, replaceMode);
-    const animationNodes = createAnimationNodes(root.ownerDocument, draft);
-    animationNodes.forEach((node) => target.appendChild(node));
+    const result = applyAnimationNodesToTarget(target, root.ownerDocument, draft, resolvedOptions);
+    if (!result.applied) {
+      skippedPaths.push(path);
+      return;
+    }
+
+    removedCount += result.removedCount;
     appliedCount += 1;
   });
 
@@ -782,12 +968,12 @@ export function applyAnimationPresetToSource(
   source: string,
   targetPaths: string[],
   draft: AnimationDraft,
-  replaceMode: AnimationReplaceMode = 'workbench',
+  options?: AnimationReplaceMode | AnimationApplyOptions,
 ): AnimationMutationResult {
   return applyAnimationDraftsToSource(
     source,
     Array.from(new Set(targetPaths)).map((path) => ({ path, draft })),
-    replaceMode,
+    options,
   );
 }
 
@@ -816,5 +1002,81 @@ export function removeWorkbenchAnimationsFromSource(
     appliedCount: 0,
     removedCount,
     skippedPaths,
+  };
+}
+
+export function reorderAnimationInSource(
+  source: string,
+  targetPath: string,
+  fromIndex: number,
+  toPosition: number,
+  replaceMode: AnimationReplaceMode = 'workbench',
+): AnimationMutationResult {
+  const root = parseSvgRoot(source);
+  const target = resolveElementByPath(root, targetPath);
+  if (!target || !isAnimatableElement(target)) {
+    return {
+      source,
+      appliedCount: 0,
+      removedCount: 0,
+      skippedPaths: [targetPath],
+    };
+  }
+
+  const directAnimationChildren = getDirectAnimationChildren(target);
+  const animationNode = directAnimationChildren[fromIndex];
+  if (!animationNode || !canReplaceAnimationNode(animationNode, replaceMode)) {
+    return {
+      source,
+      appliedCount: 0,
+      removedCount: 0,
+      skippedPaths: [targetPath],
+    };
+  }
+
+  const changed = moveAnimationNode(target, fromIndex, toPosition);
+
+  return {
+    source: changed ? new XMLSerializer().serializeToString(root) : source,
+    appliedCount: changed ? 1 : 0,
+    removedCount: 0,
+    skippedPaths: [],
+  };
+}
+
+export function removeAnimationAtIndexFromSource(
+  source: string,
+  targetPath: string,
+  animationIndex: number,
+  replaceMode: AnimationReplaceMode = 'workbench',
+): AnimationMutationResult {
+  const root = parseSvgRoot(source);
+  const target = resolveElementByPath(root, targetPath);
+  if (!target || !isAnimatableElement(target)) {
+    return {
+      source,
+      appliedCount: 0,
+      removedCount: 0,
+      skippedPaths: [targetPath],
+    };
+  }
+
+  const animationNode = getDirectAnimationChildren(target)[animationIndex];
+  if (!animationNode || !canReplaceAnimationNode(animationNode, replaceMode)) {
+    return {
+      source,
+      appliedCount: 0,
+      removedCount: 0,
+      skippedPaths: [targetPath],
+    };
+  }
+
+  animationNode.remove();
+
+  return {
+    source: new XMLSerializer().serializeToString(root),
+    appliedCount: 0,
+    removedCount: 1,
+    skippedPaths: [],
   };
 }

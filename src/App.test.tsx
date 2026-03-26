@@ -13,7 +13,7 @@ function openWorkspaceSection(name: 'File' | 'Repair' | 'Export') {
   fireEvent.click(screen.getByRole('button', { name }));
 }
 
-function openSelectionTool(name: 'Style' | 'Animation' | 'Interaction') {
+function openSelectionTool(name: 'Style' | 'Animate' | 'Interact') {
   fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
   fireEvent.click(screen.getByRole('tab', { name }));
 }
@@ -148,8 +148,8 @@ describe('App', () => {
 
     const toolTablist = screen.getByRole('tablist', { name: 'Selected element tools' });
     const styleTab = within(toolTablist).getByRole('tab', { name: 'Style' });
-    const animationTab = within(toolTablist).getByRole('tab', { name: 'Animation' });
-    const interactionTab = within(toolTablist).getByRole('tab', { name: 'Interaction' });
+    const animationTab = within(toolTablist).getByRole('tab', { name: 'Animate' });
+    const interactionTab = within(toolTablist).getByRole('tab', { name: 'Interact' });
     const toolPanel = screen.getByRole('tabpanel', { name: 'Style' });
 
     expect(styleTab).toHaveAttribute('aria-controls', toolPanel.id);
@@ -166,7 +166,7 @@ describe('App', () => {
 
     expect(interactionTab).toHaveFocus();
     expect(interactionTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tabpanel', { name: 'Interaction' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Interact' })).toBeInTheDocument();
   });
 
   it('shows blocked export readiness details for text-based SVGs', async () => {
@@ -720,7 +720,7 @@ describe('App', () => {
       },
     });
 
-    openSelectionTool('Animation');
+    openSelectionTool('Animate');
 
     await waitFor(() => {
       expect(screen.getByText('Selection targets')).toBeInTheDocument();
@@ -806,7 +806,7 @@ describe('App', () => {
       },
     });
 
-    openSelectionTool('Animation');
+    openSelectionTool('Animate');
 
     await waitFor(() => {
       expect(screen.getByText('Selection targets')).toBeInTheDocument();
@@ -837,7 +837,9 @@ describe('App', () => {
         clientY: 20,
       });
 
-      fireEvent.click(screen.getByRole('button', { name: /Orbit/ }));
+      fireEvent.change(screen.getByLabelText('Preset'), {
+        target: { value: 'orbit' },
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
 
       await waitFor(() => {
@@ -846,7 +848,7 @@ describe('App', () => {
 
       const animationBlock = screen.getByText('Animations on this element').closest('.selection-animations-block');
       expect(animationBlock?.textContent).toContain('Orbit');
-      expect(screen.getByText('workbench')).toBeInTheDocument();
+      expect(within(animationBlock as HTMLElement).getByText('workbench')).toBeInTheDocument();
       expect(animationBlock?.textContent).toContain('motion path');
     } finally {
       if (originalElementFromPoint) {
@@ -866,7 +868,7 @@ describe('App', () => {
       },
     });
 
-    openSelectionTool('Animation');
+    openSelectionTool('Animate');
 
     await waitFor(() => {
       expect(screen.getByText('Selection targets')).toBeInTheDocument();
@@ -917,6 +919,120 @@ describe('App', () => {
     }
   });
 
+  it('can append, select, edit, and clear an animation stack from the animate panel', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>',
+      },
+    });
+
+    openSelectionTool('Animate');
+
+    await waitFor(() => {
+      expect(screen.getByText('Selection targets')).toBeInTheDocument();
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 51, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 51, clientX: 20, clientY: 20 });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied fade in to 1 target/i)).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByLabelText('Preset'), {
+        target: { value: 'rotate' },
+      });
+      fireEvent.change(screen.getByLabelText('Stack action'), {
+        target: { value: 'append' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Appended rotate to 1 target/i)).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /1\. Fade in/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /2\. Rotate/i })).toBeInTheDocument();
+      });
+
+      const dataTransfer = {
+        effectAllowed: 'all',
+        dropEffect: 'move',
+        setData: vi.fn(),
+        getData: vi.fn(),
+      };
+
+      const draggedStackItem = screen.getByLabelText('Drag stack item 1: Fade in');
+
+      fireEvent.dragStart(draggedStackItem, { dataTransfer });
+      fireEvent.dragOver(screen.getByLabelText('Drop animation at end of stack'), { dataTransfer });
+      fireEvent.drop(screen.getByLabelText('Drop animation at end of stack'), { dataTransfer });
+      fireEvent.dragEnd(draggedStackItem, { dataTransfer });
+
+      await waitFor(() => {
+        expect(screen.getByText('Moved fade in to stack position 2.')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /1\. Rotate/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /2\. Fade in/i })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /2\. Fade in/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Editing stack item 2: Fade in.')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByLabelText('Preset'), {
+        target: { value: 'blink' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Updated blink to 1 target/i)).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete stack item 1' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Deleted stack item 1: rotate.')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear animation stack' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Removed 1 workbench animation node/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value).not.toContain('data-svg-workbench-animation="true"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  }, 10000);
+
   it('applies interaction fields to the selected preview element', async () => {
     const { container } = render(<App />);
 
@@ -941,7 +1057,7 @@ describe('App', () => {
       fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 41, clientX: 20, clientY: 20 });
       fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 41, clientX: 20, clientY: 20 });
 
-      openSelectionTool('Interaction');
+      openSelectionTool('Interact');
 
       fireEvent.change(screen.getByLabelText('Accessible label'), {
         target: { value: 'Open details' },
@@ -1018,7 +1134,7 @@ describe('App', () => {
       fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 42, clientX: 20, clientY: 20 });
       fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 42, clientX: 20, clientY: 20 });
 
-      openSelectionTool('Interaction');
+      openSelectionTool('Interact');
 
       fireEvent.click(screen.getByRole('button', { name: 'Focusable hotspot' }));
 
