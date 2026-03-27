@@ -99,7 +99,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Resources' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Resources' });
+    const dialog = screen.getByRole('dialog', { name: 'Workshop Resources' });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: /Example SVGs/i })).toHaveAttribute('href', 'https://github.com/SuddenDevelopment/svg/tree/main/tests/SVG');
     expect(within(dialog).getByRole('link', { name: /Blender Addon/i })).toHaveAttribute('href', 'https://github.com/SuddenDevelopment/blender-manifest-addon');
@@ -107,7 +107,7 @@ describe('App', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(screen.queryByRole('dialog', { name: 'Resources' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Workshop Resources' })).not.toBeInTheDocument();
   });
 
   it('wires the inspection controls as accessible tabs with keyboard navigation', () => {

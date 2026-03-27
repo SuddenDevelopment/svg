@@ -4113,8 +4113,8 @@ function App() {
           <section className="resources-modal panel" role="dialog" aria-modal="true" aria-labelledby={resourcesDialogTitleId}>
             <div className="resources-modal-header">
               <div>
-                <p className="eyebrow resources-modal-eyebrow">Resources</p>
-                <h2 id={resourcesDialogTitleId}>Resources</h2>
+                <p className="eyebrow resources-modal-eyebrow">Workshop resources</p>
+                <h2 id={resourcesDialogTitleId}>Workshop Resources</h2>
               </div>
               <button className="ghost-button resources-close-button" type="button" onClick={closeResourcesModal}>
                 Close
