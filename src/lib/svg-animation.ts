@@ -1,4 +1,4 @@
-export type AnimationPresetId = 'fade-in' | 'pulse' | 'drift' | 'blink' | 'rotate' | 'orbit' | 'color-shift';
+export type AnimationPresetId = 'fade-in' | 'pulse' | 'drift' | 'blink' | 'random-flicker' | 'rotate' | 'scale' | 'orbit' | 'color-shift';
 
 export type AnimationRepeatMode = 'indefinite' | 'count';
 export type AnimationStartMode = 'load' | 'click';
@@ -25,6 +25,9 @@ export type AnimationDraft = {
   motionDistance: number;
   turnDirection: AnimationTurnDirection;
   turnDegrees: number;
+  startScale: number;
+  midScale: number;
+  endScale: number;
   orbitRadiusX: number;
   orbitRadiusY: number;
   rotateMode: AnimationRotateMode;
@@ -115,6 +118,9 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 20,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -143,6 +149,9 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 14,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -171,6 +180,9 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 24,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -199,6 +211,40 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 12,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
+      orbitRadiusX: 20,
+      orbitRadiusY: 12,
+      rotateMode: 'none',
+      colorFrom: '#ff8a3d',
+      colorMid: '#ffd166',
+      colorTo: '#1f7a8c',
+    },
+  },
+  {
+    id: 'random-flicker',
+    label: 'Random flicker',
+    description: 'Flash opacity through an irregular flicker pattern for neon, glitch, or failing-power cues.',
+    defaults: {
+      presetId: 'random-flicker',
+      durationSeconds: 1.1,
+      delaySeconds: 0,
+      repeatMode: 'indefinite',
+      repeatCount: 5,
+      fillMode: 'remove',
+      startMode: 'load',
+      easing: 'linear',
+      startOpacity: 1,
+      midOpacity: 0.18,
+      endOpacity: 0.96,
+      motionDirection: 'up',
+      motionDistance: 12,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -227,6 +273,40 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 20,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
+      orbitRadiusX: 20,
+      orbitRadiusY: 12,
+      rotateMode: 'none',
+      colorFrom: '#ff8a3d',
+      colorMid: '#ffd166',
+      colorTo: '#1f7a8c',
+    },
+  },
+  {
+    id: 'scale',
+    label: 'Scale',
+    description: 'Resize the target through configurable start, peak, and end scales.',
+    defaults: {
+      presetId: 'scale',
+      durationSeconds: 1.5,
+      delaySeconds: 0,
+      repeatMode: 'indefinite',
+      repeatCount: 2,
+      fillMode: 'remove',
+      startMode: 'load',
+      easing: 'ease-in-out',
+      startOpacity: 1,
+      midOpacity: 1,
+      endOpacity: 1,
+      motionDirection: 'up',
+      motionDistance: 20,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -255,6 +335,9 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 24,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 24,
       orbitRadiusY: 14,
       rotateMode: 'auto',
@@ -283,6 +366,9 @@ export const animationPresets: AnimationPresetDefinition[] = [
       motionDistance: 20,
       turnDirection: 'clockwise',
       turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
       orbitRadiusX: 20,
       orbitRadiusY: 12,
       rotateMode: 'none',
@@ -354,6 +440,14 @@ function clampOpacity(value: number) {
 }
 
 function clampPositive(value: number, fallback: number) {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Number(Math.max(0, value).toFixed(2));
+}
+
+function clampScale(value: number, fallback: number) {
   if (!Number.isFinite(value)) {
     return fallback;
   }
@@ -550,6 +644,33 @@ function createOpacityAnimation(documentRoot: XMLDocument, draft: AnimationDraft
   }, draft.easing, 2));
 }
 
+function createRandomFlickerAnimation(documentRoot: XMLDocument, draft: AnimationDraft) {
+  const keyTimes = [0, 0.07, 0.16, 0.28, 0.41, 0.55, 0.69, 0.83, 1];
+  const lowWeights = [0, 0.68, 1, 0.22, 0.86, 0.35, 0.94, 0.12, 0];
+  const lowOpacity = clampOpacity(draft.midOpacity);
+  const values = keyTimes.map((time, index) => {
+    if (index === 0) {
+      return clampOpacity(draft.startOpacity);
+    }
+    if (index === keyTimes.length - 1) {
+      return clampOpacity(draft.endOpacity);
+    }
+
+    const baseline = clampOpacity(draft.startOpacity + ((draft.endOpacity - draft.startOpacity) * time));
+    const weight = lowWeights[index] ?? 0;
+    const flickerValue = baseline - ((baseline - lowOpacity) * weight);
+    return clampOpacity(flickerValue);
+  });
+
+  return createAnimationElement(documentRoot, 'animate', withSplineAttributes({
+    [WORKBENCH_PRESET_ATTRIBUTE]: draft.presetId,
+    ...getCommonAnimationAttributes(draft),
+    attributeName: 'opacity',
+    values: values.join(';'),
+    keyTimes: keyTimes.join(';'),
+  }, draft.easing, keyTimes.length - 1));
+}
+
 function createDriftAnimation(documentRoot: XMLDocument, draft: AnimationDraft) {
   const delta = getMotionDelta(draft.motionDirection, draft.motionDistance);
 
@@ -583,6 +704,22 @@ function createRotateAnimation(documentRoot: XMLDocument, draft: AnimationDraft)
   }, draft.easing, 1));
 }
 
+function createScaleAnimation(documentRoot: XMLDocument, draft: AnimationDraft) {
+  const startScale = clampScale(draft.startScale, 1);
+  const midScale = clampScale(draft.midScale, 1.12);
+  const endScale = clampScale(draft.endScale, startScale);
+
+  return createAnimationElement(documentRoot, 'animateTransform', withSplineAttributes({
+    [WORKBENCH_PRESET_ATTRIBUTE]: draft.presetId,
+    ...getCommonAnimationAttributes(draft),
+    additive: 'sum',
+    attributeName: 'transform',
+    type: 'scale',
+    values: `${startScale} ${startScale}; ${midScale} ${midScale}; ${endScale} ${endScale}`,
+    keyTimes: '0;0.5;1',
+  }, draft.easing, 2));
+}
+
 function createOrbitAnimation(documentRoot: XMLDocument, draft: AnimationDraft) {
   const radiusX = clampPositive(draft.orbitRadiusX, 20);
   const radiusY = clampPositive(draft.orbitRadiusY, 12);
@@ -614,10 +751,14 @@ function createAnimationNodes(documentRoot: XMLDocument, draft: AnimationDraft) 
     case 'pulse':
     case 'blink':
       return [createOpacityAnimation(documentRoot, draft, false)];
+    case 'random-flicker':
+      return [createRandomFlickerAnimation(documentRoot, draft)];
     case 'drift':
       return [createDriftAnimation(documentRoot, draft)];
     case 'rotate':
       return [createRotateAnimation(documentRoot, draft)];
+    case 'scale':
+      return [createScaleAnimation(documentRoot, draft)];
     case 'orbit':
       return [createOrbitAnimation(documentRoot, draft)];
     case 'color-shift':
@@ -760,43 +901,113 @@ function buildDraftBase(presetId: AnimationPresetId, node: Element) {
   });
 }
 
-function inferAnimationDraftFromNode(animationNode: Element): AnimationDraft | null {
+function parseAnimationValueList(node: Element) {
+  return node.getAttribute('values')?.split(';').map((value) => value.trim()).filter(Boolean) ?? [];
+}
+
+function parseTransformNumberPair(value: string) {
+  const numbers = value.split(/\s+/).map(Number).filter((number) => Number.isFinite(number));
+  return {
+    first: numbers[0] ?? 0,
+    second: numbers[1] ?? numbers[0] ?? 0,
+  };
+}
+
+function inferAnimationPresetId(animationNode: Element): AnimationPresetId | null {
   const presetAttribute = animationNode.getAttribute(WORKBENCH_PRESET_ATTRIBUTE);
   if (presetAttribute && animationPresets.some((preset) => preset.id === presetAttribute)) {
-    return buildDraftBase(presetAttribute as AnimationPresetId, animationNode);
+    return presetAttribute as AnimationPresetId;
   }
 
   const nodeName = getLocalTagName(animationNode);
   if (nodeName === 'animateMotion') {
-    return buildDraftBase('orbit', animationNode);
+    return 'orbit';
+  }
+
+  if (nodeName === 'animateTransform') {
+    switch (animationNode.getAttribute('type')) {
+      case 'rotate':
+        return 'rotate';
+      case 'translate':
+        return 'drift';
+      case 'scale':
+        return 'scale';
+      default:
+        return null;
+    }
+  }
+
+  if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'fill') {
+    return 'color-shift';
+  }
+
+  if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'opacity') {
+    const values = parseAnimationValueList(animationNode).map((value) => Number(value));
+    if (values.length > 3) {
+      return 'random-flicker';
+    }
+    if (values.length >= 3) {
+      return values[1] <= 0.05 ? 'blink' : 'pulse';
+    }
+
+    return 'fade-in';
+  }
+
+  return null;
+}
+
+function inferAnimationDraftFromNode(animationNode: Element): AnimationDraft | null {
+  const inferredPresetId = inferAnimationPresetId(animationNode);
+  if (!inferredPresetId) {
+    return null;
+  }
+
+  const baseDraft = buildDraftBase(inferredPresetId, animationNode);
+
+  const nodeName = getLocalTagName(animationNode);
+  if (nodeName === 'animateMotion') {
+    return baseDraft;
   }
 
   if (nodeName === 'animateTransform' && animationNode.getAttribute('type') === 'rotate') {
-    const values = animationNode.getAttribute('values')?.split(';').map((value) => Number(value.trim().split(/\s+/)[0])) ?? [];
+    const values = parseAnimationValueList(animationNode).map((value) => Number(value.split(/\s+/)[0]));
     const targetDegrees = values.at(-1) ?? 0;
     return createAnimationDraft('rotate', {
-      ...buildDraftBase('rotate', animationNode),
+      ...baseDraft,
       turnDirection: targetDegrees < 0 ? 'counterclockwise' : 'clockwise',
       turnDegrees: Number(Math.abs(targetDegrees).toFixed(2)),
     });
   }
 
   if (nodeName === 'animateTransform' && animationNode.getAttribute('type') === 'translate') {
-    const values = animationNode.getAttribute('values')?.split(';').map((value) => value.trim()) ?? [];
+    const values = parseAnimationValueList(animationNode);
     const middle = values[1]?.split(/\s+/).map(Number) ?? [0, 0];
     const x = middle[0] ?? 0;
     const y = middle[1] ?? 0;
     return createAnimationDraft('drift', {
-      ...buildDraftBase('drift', animationNode),
+      ...baseDraft,
       motionDirection: inferMotionDirection(x, y),
       motionDistance: Number(Math.max(Math.abs(x), Math.abs(y)).toFixed(2)),
     });
   }
 
+  if (nodeName === 'animateTransform' && animationNode.getAttribute('type') === 'scale') {
+    const values = parseAnimationValueList(animationNode);
+    const startPair = parseTransformNumberPair(values[0] ?? '1 1');
+    const middlePair = parseTransformNumberPair(values[1] ?? values.at(-1) ?? `${startPair.first} ${startPair.second}`);
+    const endPair = parseTransformNumberPair(values[2] ?? values.at(-1) ?? `${startPair.first} ${startPair.second}`);
+    return createAnimationDraft('scale', {
+      ...baseDraft,
+      startScale: Number(startPair.first.toFixed(2)),
+      midScale: Number(middlePair.first.toFixed(2)),
+      endScale: Number(endPair.first.toFixed(2)),
+    });
+  }
+
   if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'fill') {
-    const values = animationNode.getAttribute('values')?.split(';').map((value) => value.trim()) ?? [];
+    const values = parseAnimationValueList(animationNode);
     return createAnimationDraft('color-shift', {
-      ...buildDraftBase('color-shift', animationNode),
+      ...baseDraft,
       colorFrom: values[0] ?? '#ff8a3d',
       colorMid: values[1] ?? values[0] ?? '#ffd166',
       colorTo: values[2] ?? values[1] ?? values[0] ?? '#1f7a8c',
@@ -804,11 +1015,22 @@ function inferAnimationDraftFromNode(animationNode: Element): AnimationDraft | n
   }
 
   if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'opacity') {
-    const values = animationNode.getAttribute('values')?.split(';').map((value) => Number(value.trim())) ?? [];
+    const values = parseAnimationValueList(animationNode).map((value) => Number(value));
+    if (values.length > 3) {
+      const interiorValues = values.slice(1, -1).filter((value) => Number.isFinite(value));
+      return createAnimationDraft('random-flicker', {
+        ...baseDraft,
+        startOpacity: values[0] ?? 1,
+        midOpacity: Number(Math.min(...interiorValues, values[0] ?? 1).toFixed(2)),
+        endOpacity: values.at(-1) ?? 1,
+      });
+    }
     if (values.length >= 3) {
-      const presetId = values[1] <= 0.05 ? 'blink' : 'pulse';
+      const presetId = inferredPresetId === 'random-flicker'
+        ? 'random-flicker'
+        : values[1] <= 0.05 ? 'blink' : 'pulse';
       return createAnimationDraft(presetId, {
-        ...buildDraftBase(presetId, animationNode),
+        ...baseDraft,
         startOpacity: values[0] ?? 1,
         midOpacity: values[1] ?? 0.4,
         endOpacity: values[2] ?? 1,
@@ -816,13 +1038,13 @@ function inferAnimationDraftFromNode(animationNode: Element): AnimationDraft | n
     }
 
     return createAnimationDraft('fade-in', {
-      ...buildDraftBase('fade-in', animationNode),
+      ...baseDraft,
       startOpacity: Number(animationNode.getAttribute('from') ?? 0),
       endOpacity: Number(animationNode.getAttribute('to') ?? 1),
     });
   }
 
-  return null;
+  return baseDraft;
 }
 
 export function getAnimationPresetDefinition(presetId: AnimationPresetId) {
@@ -847,6 +1069,9 @@ export function createAnimationDraft(presetId: AnimationPresetId, current?: Part
     motionDistance: current?.motionDistance ?? defaults.motionDistance,
     turnDirection: current?.turnDirection ?? defaults.turnDirection,
     turnDegrees: current?.turnDegrees ?? defaults.turnDegrees,
+    startScale: current?.startScale ?? defaults.startScale,
+    midScale: current?.midScale ?? defaults.midScale,
+    endScale: current?.endScale ?? defaults.endScale,
     orbitRadiusX: current?.orbitRadiusX ?? defaults.orbitRadiusX,
     orbitRadiusY: current?.orbitRadiusY ?? defaults.orbitRadiusY,
     rotateMode: current?.rotateMode ?? defaults.rotateMode,
@@ -865,10 +1090,14 @@ export function describeAnimationDraft(draft: AnimationDraft) {
       return `Pulse opacity through ${clampOpacity(draft.midOpacity)} every ${formatSeconds(draft.durationSeconds)} using ${draft.easing} timing.`;
     case 'blink':
       return `Blink between ${clampOpacity(draft.startOpacity)} and ${clampOpacity(draft.midOpacity)} every ${formatSeconds(draft.durationSeconds)}.`;
+    case 'random-flicker':
+      return `Flicker irregularly from ${clampOpacity(draft.startOpacity)} down to ${clampOpacity(draft.midOpacity)} and recover toward ${clampOpacity(draft.endOpacity)} every ${formatSeconds(draft.durationSeconds)}.`;
     case 'drift':
       return `Move ${draft.motionDirection} by ${clampPositive(draft.motionDistance, 0)} units over ${formatSeconds(draft.durationSeconds)}.`;
     case 'rotate':
       return `Rotate ${draft.turnDirection} by ${clampPositive(draft.turnDegrees, 180)} degrees over ${formatSeconds(draft.durationSeconds)}.`;
+    case 'scale':
+      return `Scale from ${clampScale(draft.startScale, 1)} to ${clampScale(draft.midScale, 1.12)} and settle at ${clampScale(draft.endScale, 1)} over ${formatSeconds(draft.durationSeconds)}.`;
     case 'orbit':
       return `Orbit on a ${clampPositive(draft.orbitRadiusX, 20)} by ${clampPositive(draft.orbitRadiusY, 12)} path over ${formatSeconds(draft.durationSeconds)}.`;
     case 'color-shift':

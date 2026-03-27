@@ -150,6 +150,49 @@ describe('svg-animation', () => {
     expect(result.source).toContain('data-svg-workbench-animation-preset="rotate"');
   });
 
+  it('applies a scale preset with configurable start, peak, and end values', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>';
+    const draft = createAnimationDraft('scale', {
+      startScale: 0.85,
+      midScale: 1.35,
+      endScale: 1.05,
+      durationSeconds: 2.1,
+      repeatMode: 'count',
+      repeatCount: 4,
+    });
+
+    const result = applyAnimationPresetToSource(source, ['0.0'], draft);
+
+    expect(result.source).toContain('<animateTransform');
+    expect(result.source).toContain('type="scale"');
+    expect(result.source).toContain('values="0.85 0.85; 1.35 1.35; 1.05 1.05"');
+    expect(result.source).toContain('dur="2.1s"');
+    expect(result.source).toContain('repeatCount="4"');
+    expect(result.source).toContain('data-svg-workbench-animation-preset="scale"');
+  });
+
+  it('applies a random flicker preset with irregular opacity keyframes', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>';
+    const draft = createAnimationDraft('random-flicker', {
+      startOpacity: 1,
+      midOpacity: 0.22,
+      endOpacity: 0.9,
+      durationSeconds: 1.4,
+      repeatMode: 'count',
+      repeatCount: 3,
+    });
+
+    const result = applyAnimationPresetToSource(source, ['0.0'], draft);
+
+    expect(result.source).toContain('<animate');
+    expect(result.source).toContain('attributeName="opacity"');
+    expect(result.source).toContain('data-svg-workbench-animation-preset="random-flicker"');
+    expect(result.source).toContain('dur="1.4s"');
+    expect(result.source).toContain('repeatCount="3"');
+    expect(result.source).toContain('keyTimes="0;0.07;0.16;0.28;0.41;0.55;0.69;0.83;1"');
+    expect(result.source).toContain('values="1;0.47;0.22;0.8;0.32;0.69;0.26;0.84;0.9"');
+  });
+
   it('summarizes authored animations on a target element', () => {
     const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>';
     const animated = applyAnimationPresetToSource(source, ['0.0'], createAnimationDraft('color-shift'));
@@ -186,6 +229,18 @@ describe('svg-animation', () => {
     expect(draft?.durationSeconds).toBe(0.6);
   });
 
+  it('infers a random flicker draft from irregular native opacity values', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12"><animate attributeName="opacity" values="1;0.47;0.22;0.72;0.33;0.63;0.27;0.86;0.9" dur="1.4s" repeatCount="indefinite" /></rect></svg>';
+    const draft = inferAnimationDraftForPath(source, '0.0');
+
+    expect(draft?.presetId).toBe('random-flicker');
+    expect(draft?.startOpacity).toBe(1);
+    expect(draft?.midOpacity).toBe(0.22);
+    expect(draft?.endOpacity).toBe(0.9);
+    expect(draft?.durationSeconds).toBe(1.4);
+    expect(draft?.repeatMode).toBe('indefinite');
+  });
+
   it('infers a rotation draft from native rotate transform markup', () => {
     const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12"><animateTransform attributeName="transform" type="rotate" values="0; -135" dur="1.5s" repeatCount="2" /></rect></svg>';
     const draft = inferAnimationDraftForPath(source, '0.0');
@@ -196,5 +251,33 @@ describe('svg-animation', () => {
     expect(draft?.durationSeconds).toBe(1.5);
     expect(draft?.repeatMode).toBe('count');
     expect(draft?.repeatCount).toBe(2);
+  });
+
+  it('infers a scale draft from native scale transform markup', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12"><animateTransform attributeName="transform" type="scale" values="0.9 0.9; 1.25 1.25; 1.05 1.05" dur="1.8s" repeatCount="indefinite" /></rect></svg>';
+    const draft = inferAnimationDraftForPath(source, '0.0');
+
+    expect(draft?.presetId).toBe('scale');
+    expect(draft?.startScale).toBe(0.9);
+    expect(draft?.midScale).toBe(1.25);
+    expect(draft?.endScale).toBe(1.05);
+    expect(draft?.durationSeconds).toBe(1.8);
+    expect(draft?.repeatMode).toBe('indefinite');
+  });
+
+  it('preserves workbench-authored scale values when loading a draft back from source', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>';
+    const authored = applyAnimationPresetToSource(source, ['0.0'], createAnimationDraft('scale', {
+      startScale: 0.92,
+      midScale: 1.28,
+      endScale: 1.08,
+    }));
+
+    const draft = inferAnimationDraftForPath(authored.source, '0.0');
+
+    expect(draft?.presetId).toBe('scale');
+    expect(draft?.startScale).toBe(0.92);
+    expect(draft?.midScale).toBe(1.28);
+    expect(draft?.endScale).toBe(1.08);
   });
 });

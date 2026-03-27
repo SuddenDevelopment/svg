@@ -136,6 +136,34 @@ const exportPresetCards: Array<{ id: ExportVariant; title: string; description: 
   },
 ];
 
+const resourceCards: Array<{
+  id: 'examples' | 'addon' | 'discord';
+  title: string;
+  description: string;
+  href: string;
+  note?: string;
+}> = [
+  {
+    id: 'examples',
+    title: 'Example SVGs',
+    description: 'Browse the repository sample SVG library used for testing and workbench validation.',
+    href: 'https://github.com/SuddenDevelopment/svg/tree/main/tests/SVG',
+  },
+  {
+    id: 'addon',
+    title: 'Blender Addon',
+    description: 'Open the published Blender addon repository from the same owner.',
+    href: 'https://github.com/SuddenDevelopment/blender-manifest-addon',
+  },
+  {
+    id: 'discord',
+    title: 'Discord link',
+    description: 'Open Discord. Replace this destination with the real invite URL when you have it.',
+    href: 'https://discord.com/',
+    note: 'Placeholder destination until the project invite URL is available.',
+  },
+];
+
 const primaryNavItems: Array<{
   id: WorkspaceSection;
   label: string;
@@ -416,6 +444,17 @@ function getPreviewMotionVector(direction: AnimationMotionDirection, distance: n
   }
 }
 
+function getPreviewFlickerStops(startOpacity: number, lowOpacity: number, endOpacity: number) {
+  const keyTimes = [0.07, 0.16, 0.28, 0.41, 0.55, 0.69, 0.83];
+  const lowWeights = [0.68, 1, 0.22, 0.86, 0.35, 0.94, 0.12];
+  return keyTimes.map((time, index) => {
+    const baseline = startOpacity + ((endOpacity - startOpacity) * time);
+    const weight = lowWeights[index] ?? 0;
+    const value = baseline - ((baseline - lowOpacity) * weight);
+    return Number(Math.min(1, Math.max(0, value)).toFixed(2));
+  });
+}
+
 function parseAnimationSummarySeconds(value: string | null) {
   if (!value) {
     return 0;
@@ -507,6 +546,7 @@ function App() {
   const inputId = useId();
   const fontInputId = useId();
   const sourceId = useId();
+  const resourcesDialogTitleId = useId();
   const inspectorTabsId = useId();
   const selectionFacetTabsId = useId();
   const previewTabsId = useId();
@@ -569,6 +609,7 @@ function App() {
   const [selectedExportPreset, setSelectedExportPreset] = useState<ExportVariant>('safe');
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFontAsset[]>([]);
   const [fontMappings, setFontMappings] = useState<FontMapping>({});
+  const [isResourcesOpen, setIsResourcesOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('file');
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
   const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
@@ -714,6 +755,24 @@ function App() {
       window.removeEventListener('resize', sync);
     };
   }, [activeSection, analysis, inspectorTab, isRightCollapsed, parseError, selectedNodeId]);
+
+  useEffect(() => {
+    if (!isResourcesOpen) {
+      return;
+    }
+
+    const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsResourcesOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown);
+    };
+  }, [isResourcesOpen]);
 
   useEffect(() => {
     const container = previewFrameRef.current;
@@ -1552,6 +1611,10 @@ function App() {
     closePreviewWorkflowMenu(event.currentTarget);
   }
 
+  function closeResourcesModal() {
+    setIsResourcesOpen(false);
+  }
+
   function selectSection(section: WorkspaceSection) {
     setActiveSection(section);
     setInspectorTab(defaultInspectorTabBySection[section]);
@@ -1920,7 +1983,7 @@ function App() {
     setAnimationMessage(null);
   }
 
-  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'turnDegrees' | 'orbitRadiusX' | 'orbitRadiusY'>, value: number) {
+  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'turnDegrees' | 'startScale' | 'midScale' | 'endScale' | 'orbitRadiusX' | 'orbitRadiusY'>, value: number) {
     setAnimationDraft((current) => ({
       ...current,
       [field]: Number.isFinite(value) ? value : 0,
@@ -2623,6 +2686,21 @@ function App() {
                   <input type="number" min="0" step="1" value={animationDraft.turnDegrees} onChange={(event) => updateAnimationNumberField('turnDegrees', Number(event.target.value))} />
                 </label>
               </>
+            ) : animationDraft.presetId === 'scale' ? (
+              <>
+                <label className="animation-field animation-field-split">
+                  <span>Start scale</span>
+                  <input type="number" min="0" step="0.05" value={animationDraft.startScale} onChange={(event) => updateAnimationNumberField('startScale', Number(event.target.value))} />
+                </label>
+                <label className="animation-field animation-field-split">
+                  <span>Peak scale</span>
+                  <input type="number" min="0" step="0.05" value={animationDraft.midScale} onChange={(event) => updateAnimationNumberField('midScale', Number(event.target.value))} />
+                </label>
+                <label className="animation-field animation-field-split">
+                  <span>End scale</span>
+                  <input type="number" min="0" step="0.05" value={animationDraft.endScale} onChange={(event) => updateAnimationNumberField('endScale', Number(event.target.value))} />
+                </label>
+              </>
             ) : animationDraft.presetId === 'orbit' ? (
               <>
                 <label className="animation-field animation-field-split">
@@ -2686,6 +2764,7 @@ function App() {
                 const previewTurnDegrees = animationDraft.turnDirection === 'counterclockwise'
                   ? animationDraft.turnDegrees * -1
                   : animationDraft.turnDegrees;
+                const previewFlickerStops = getPreviewFlickerStops(animationDraft.startOpacity, animationDraft.midOpacity, animationDraft.endOpacity);
                 const previewStyle: CSSProperties & Record<string, string> = {
                   animationDuration: `${Math.max(0.1, animationDraft.durationSeconds)}s`,
                   animationDelay: `${Math.max(0, animationDraft.delaySeconds)}s`,
@@ -2694,10 +2773,20 @@ function App() {
                   '--animation-preview-start': `${animationDraft.startOpacity}`,
                   '--animation-preview-mid': `${animationDraft.midOpacity}`,
                   '--animation-preview-end': `${animationDraft.endOpacity}`,
+                  '--animation-preview-flicker-1': `${previewFlickerStops[0] ?? animationDraft.midOpacity}`,
+                  '--animation-preview-flicker-2': `${previewFlickerStops[1] ?? animationDraft.midOpacity}`,
+                  '--animation-preview-flicker-3': `${previewFlickerStops[2] ?? animationDraft.midOpacity}`,
+                  '--animation-preview-flicker-4': `${previewFlickerStops[3] ?? animationDraft.midOpacity}`,
+                  '--animation-preview-flicker-5': `${previewFlickerStops[4] ?? animationDraft.midOpacity}`,
+                  '--animation-preview-flicker-6': `${previewFlickerStops[5] ?? animationDraft.midOpacity}`,
+                  '--animation-preview-flicker-7': `${previewFlickerStops[6] ?? animationDraft.midOpacity}`,
                   '--animation-preview-x': `${previewMotion.x}px`,
                   '--animation-preview-y': `${previewMotion.y}px`,
                   '--animation-preview-distance': `${animationDraft.motionDistance}px`,
                   '--animation-preview-rotate': `${previewTurnDegrees}deg`,
+                  '--animation-preview-scale-start': `${animationDraft.startScale}`,
+                  '--animation-preview-scale-mid': `${animationDraft.midScale}`,
+                  '--animation-preview-scale-end': `${animationDraft.endScale}`,
                   '--animation-preview-orbit-x': `${animationDraft.orbitRadiusX}px`,
                   '--animation-preview-orbit-y': `${animationDraft.orbitRadiusY}px`,
                   '--animation-preview-color-from': animationDraft.colorFrom,
@@ -2750,6 +2839,22 @@ function App() {
                     <label className="animation-field">
                       <span>Degrees override</span>
                       <input type="number" min="0" step="1" value={activeAnimationOverride?.turnDegrees ?? animationDraft.turnDegrees} onChange={(event) => updateActiveTargetOverride('turnDegrees', Number(event.target.value))} />
+                    </label>
+                  </>
+                ) : null}
+                {animationDraft.presetId === 'scale' ? (
+                  <>
+                    <label className="animation-field">
+                      <span>Start scale override</span>
+                      <input type="number" min="0" step="0.05" value={activeAnimationOverride?.startScale ?? animationDraft.startScale} onChange={(event) => updateActiveTargetOverride('startScale', Number(event.target.value))} />
+                    </label>
+                    <label className="animation-field">
+                      <span>Peak scale override</span>
+                      <input type="number" min="0" step="0.05" value={activeAnimationOverride?.midScale ?? animationDraft.midScale} onChange={(event) => updateActiveTargetOverride('midScale', Number(event.target.value))} />
+                    </label>
+                    <label className="animation-field">
+                      <span>End scale override</span>
+                      <input type="number" min="0" step="0.05" value={activeAnimationOverride?.endScale ?? animationDraft.endScale} onChange={(event) => updateActiveTargetOverride('endScale', Number(event.target.value))} />
                     </label>
                   </>
                 ) : null}
@@ -3934,6 +4039,9 @@ function App() {
           <h1>SVG Workbench</h1>
         </div>
         <div className="topbar-actions">
+          <button className="ghost-button resources-trigger" type="button" onClick={() => setIsResourcesOpen(true)}>
+            Resources
+          </button>
           <input
             ref={fileInputRef}
             id={inputId}
@@ -3991,6 +4099,50 @@ function App() {
           </div>
         </div>
       </header>
+
+      {isResourcesOpen ? (
+        <div
+          className="resources-modal-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeResourcesModal();
+            }
+          }}
+        >
+          <section className="resources-modal panel" role="dialog" aria-modal="true" aria-labelledby={resourcesDialogTitleId}>
+            <div className="resources-modal-header">
+              <div>
+                <p className="eyebrow resources-modal-eyebrow">Resources</p>
+                <h2 id={resourcesDialogTitleId}>Resources</h2>
+              </div>
+              <button className="ghost-button resources-close-button" type="button" onClick={closeResourcesModal}>
+                Close
+              </button>
+            </div>
+            <p className="resources-modal-copy">
+              Quick access to example assets, Blender-side tooling, and the project community channel.
+            </p>
+            <div className="resources-grid">
+              {resourceCards.map((resource) => (
+                <a
+                  key={resource.id}
+                  className="resource-card"
+                  href={resource.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={closeResourcesModal}
+                >
+                  <span className="resource-card-kicker">Resource</span>
+                  <strong>{resource.title}</strong>
+                  <span>{resource.description}</span>
+                  {resource.note ? <small>{resource.note}</small> : null}
+                </a>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <main className={`workspace-grid${isLeftCollapsed ? ' left-collapsed' : ''}${isRightCollapsed ? ' right-collapsed' : ''}`}>
         <aside className={`panel tool-panel side-panel${isLeftCollapsed ? ' collapsed' : ''}`}>

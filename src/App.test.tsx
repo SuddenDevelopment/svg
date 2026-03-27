@@ -94,6 +94,22 @@ describe('App', () => {
     expect(screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.')).toBeInTheDocument();
   });
 
+  it('opens the resources modal from the topbar and exposes the resource links', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resources' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Resources' });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: /Example SVGs/i })).toHaveAttribute('href', 'https://github.com/SuddenDevelopment/svg/tree/main/tests/SVG');
+    expect(within(dialog).getByRole('link', { name: /Blender Addon/i })).toHaveAttribute('href', 'https://github.com/SuddenDevelopment/blender-manifest-addon');
+    expect(within(dialog).getByRole('link', { name: /Discord link/i })).toHaveAttribute('href', 'https://discord.com/');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'Resources' })).not.toBeInTheDocument();
+  });
+
   it('wires the inspection controls as accessible tabs with keyboard navigation', () => {
     render(<App />);
 
@@ -850,6 +866,132 @@ describe('App', () => {
       expect(animationBlock?.textContent).toContain('Orbit');
       expect(within(animationBlock as HTMLElement).getByText('workbench')).toBeInTheDocument();
       expect(animationBlock?.textContent).toContain('motion path');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('lets the animate panel author a scale preset with custom values', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>',
+      },
+    });
+
+    openSelectionTool('Animate');
+
+    await waitFor(() => {
+      expect(screen.getByText('Selection targets')).toBeInTheDocument();
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 26, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 26, clientX: 20, clientY: 20 });
+
+      fireEvent.change(screen.getByLabelText('Preset'), {
+        target: { value: 'scale' },
+      });
+      fireEvent.change(screen.getByLabelText('Start scale'), {
+        target: { value: '0.9' },
+      });
+      fireEvent.change(screen.getByLabelText('Peak scale'), {
+        target: { value: '1.3' },
+      });
+      fireEvent.change(screen.getByLabelText('End scale'), {
+        target: { value: '1.05' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied scale to 1 target/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value).toContain('data-svg-workbench-animation-preset="scale"');
+      expect(sourceEditor.value).toContain('type="scale"');
+      expect(sourceEditor.value).toContain('values="0.9 0.9; 1.3 1.3; 1.05 1.05"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('lets the animate panel author a random flicker preset', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>',
+      },
+    });
+
+    openSelectionTool('Animate');
+
+    await waitFor(() => {
+      expect(screen.getByText('Selection targets')).toBeInTheDocument();
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 27, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 27, clientX: 20, clientY: 20 });
+
+      fireEvent.change(screen.getByLabelText('Preset'), {
+        target: { value: 'random-flicker' },
+      });
+      fireEvent.change(screen.getByLabelText('Start opacity'), {
+        target: { value: '1' },
+      });
+      fireEvent.change(screen.getByLabelText('Mid opacity'), {
+        target: { value: '0.22' },
+      });
+      fireEvent.change(screen.getByLabelText('End opacity'), {
+        target: { value: '0.9' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Applied random flicker to 1 target/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+
+      const sourceEditor = screen.getByLabelText('SVG source') as HTMLTextAreaElement;
+      expect(sourceEditor.value).toContain('data-svg-workbench-animation-preset="random-flicker"');
+      expect(sourceEditor.value).toContain('keyTimes="0;0.07;0.16;0.28;0.41;0.55;0.69;0.83;1"');
+      expect(sourceEditor.value).toContain('values="1;0.47;0.22;0.8;0.32;0.69;0.26;0.84;0.9"');
     } finally {
       if (originalElementFromPoint) {
         Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
