@@ -9,11 +9,16 @@ npm install
 npm run dev
 ```
 
+`npm install` also enables the local Git hooks via Husky.
+
 ## Production build
 
 ```powershell
 npm run build
 ```
+
+Commits run the build in a `pre-commit` hook and are blocked if the build fails.
+
 
 ## GitHub Pages
 

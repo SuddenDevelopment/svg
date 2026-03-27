@@ -77,6 +77,7 @@ type PreviewTab = 'preview' | 'source';
 type WorkspaceSection = 'file' | 'repair' | 'export';
 type InspectorTab = 'overview' | 'selection' | 'warnings';
 type SelectionFacet = 'style' | 'animate' | 'interact';
+type RightPanelMode = 'collapsed' | 'quarter' | 'half';
 
 type ExportReport = {
   action: 'download' | 'copy';
@@ -528,6 +529,32 @@ function hasInlineOverflow(element: HTMLElement) {
   return element.scrollWidth > element.clientWidth + 1;
 }
 
+function getNextRightPanelMode(current: RightPanelMode): RightPanelMode {
+  switch (current) {
+    case 'collapsed':
+      return 'quarter';
+    case 'quarter':
+      return 'half';
+    case 'half':
+      return 'collapsed';
+  }
+}
+
+function getRightPanelToggleLabel(mode: RightPanelMode) {
+  switch (mode) {
+    case 'collapsed':
+      return 'Expand inspection panel to 25% width';
+    case 'quarter':
+      return 'Expand inspection panel to 50% width';
+    case 'half':
+      return 'Collapse inspection panel';
+  }
+}
+
+function getRightPanelToggleIcon(mode: RightPanelMode) {
+  return mode === 'half' ? '>' : '<';
+}
+
 function syncFitContainers(root: ParentNode | null) {
   if (!root) {
     return;
@@ -614,12 +641,13 @@ function App() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
   const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
-  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('collapsed');
   const deferredSource = useDeferredValue(source);
   const textOptions: TextConversionOptions = {
     uploadedFonts,
     fontMappings,
   };
+  const isRightCollapsed = rightPanelMode === 'collapsed';
 
   useEffect(() => {
     try {
@@ -754,7 +782,7 @@ function App() {
     return () => {
       window.removeEventListener('resize', sync);
     };
-  }, [activeSection, analysis, inspectorTab, isRightCollapsed, parseError, selectedNodeId]);
+  }, [activeSection, analysis, inspectorTab, isRightCollapsed, parseError, rightPanelMode, selectedNodeId]);
 
   useEffect(() => {
     if (!isResourcesOpen) {
@@ -4145,7 +4173,7 @@ function App() {
         </div>
       ) : null}
 
-      <main className={`workspace-grid${isLeftCollapsed ? ' left-collapsed' : ''}${isRightCollapsed ? ' right-collapsed' : ''}`}>
+      <main className={`workspace-grid${isLeftCollapsed ? ' left-collapsed' : ''}`}>
         <aside className={`panel tool-panel side-panel${isLeftCollapsed ? ' collapsed' : ''}`}>
           <div className="side-panel-header">
             {!isLeftCollapsed ? (
@@ -4187,216 +4215,219 @@ function App() {
           {!isLeftCollapsed ? <div className="side-panel-body">{renderActiveSection()}</div> : null}
         </aside>
 
-        <section className="panel preview-panel">
-          <div className="panel-heading preview-heading">
-            <div>
-              <p className="eyebrow">Live preview</p>
-              <h2>Preview workspace</h2>
-            </div>
-            <div className="preview-tabs" role="tablist" aria-label="Preview modes">
-              <button
-                id={getPreviewTabButtonId('preview')}
-                className={`preview-tab ${previewTab === 'preview' ? 'active' : ''}`}
-                type="button"
-                role="tab"
-                tabIndex={previewTab === 'preview' ? 0 : -1}
-                aria-selected={previewTab === 'preview'}
-                aria-controls={getPreviewTabPanelId()}
-                onClick={() => setPreviewTab('preview')}
-                onKeyDown={(event) => handlePreviewTabKeyDown(event, 'preview')}
-              >
-                Preview
-              </button>
-              <button
-                id={getPreviewTabButtonId('source')}
-                className={`preview-tab ${previewTab === 'source' ? 'active' : ''}`}
-                type="button"
-                role="tab"
-                tabIndex={previewTab === 'source' ? 0 : -1}
-                aria-selected={previewTab === 'source'}
-                aria-controls={getPreviewTabPanelId()}
-                onClick={() => setPreviewTab('source')}
-                onKeyDown={(event) => handlePreviewTabKeyDown(event, 'source')}
-              >
-                Markup
-              </button>
-            </div>
-          </div>
-
-          <div className="preview-toolbar" role="toolbar" aria-label="Preview navigation controls">
-            <div className="preview-control-group">
-              <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(-PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
-                Zoom out
-              </button>
-              <p className="preview-zoom-readout" aria-live="polite">{Math.round(previewViewport.scale * 100)}%</p>
-              <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
-                Zoom in
-              </button>
-              <button className="ghost-button preview-control" type="button" onClick={resetPreviewViewport} disabled={!isPreviewInteractive}>
-                Reset view
-              </button>
-            </div>
-            <div className="preview-control-group">
-              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, -PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
-                Pan up
-              </button>
-              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(-PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
-                Pan left
-              </button>
-              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
-                Pan right
-              </button>
-              <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
-                Pan down
-              </button>
-            </div>
-            <div className="preview-control-group timeline-control-group">
-              <button className="ghost-button preview-control" type="button" onClick={playPreviewTimeline} disabled={!isPreviewInteractive || isPreviewTimelinePlaying}>
-                Play
-              </button>
-              <button className="ghost-button preview-control" type="button" onClick={pausePreviewTimeline} disabled={!isPreviewInteractive || !isPreviewTimelinePlaying}>
-                Pause
-              </button>
-              <button className="ghost-button preview-control" type="button" onClick={restartPreviewTimeline} disabled={!isPreviewInteractive}>
-                Restart
-              </button>
-              <label className="timeline-scrubber">
-                <span>{previewTimelineSeconds.toFixed(1)}s</span>
-                <input
-                  aria-label="Preview timeline"
-                  type="range"
-                  min="0"
-                  max={previewTimelineMax.toFixed(1)}
-                  step="0.1"
-                  value={Math.min(previewTimelineSeconds, previewTimelineMax)}
-                  onChange={(event) => scrubPreviewTimeline(Number(event.target.value))}
-                  onInput={(event) => scrubPreviewTimeline(Number((event.target as HTMLInputElement).value))}
-                  disabled={!isPreviewInteractive}
-                />
-              </label>
-            </div>
-          </div>
-
-          <div
-            id={getPreviewTabPanelId()}
-            className={`preview-surface ${isDragging ? 'is-dragging' : ''}`}
-            role="tabpanel"
-            aria-labelledby={getPreviewTabButtonId(previewTab)}
-            onDragEnter={(event) => {
-              event.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setIsDragging(false);
-            }}
-            onDrop={handleDrop}
-            onPointerDown={handlePreviewPointerDown}
-            onPointerMove={handlePreviewPointerMove}
-            onPointerUp={handlePreviewPointerUp}
-            onPointerCancel={stopPreviewPan}
-            onLostPointerCapture={stopPreviewPan}
-            onWheel={handlePreviewWheel}
-            aria-label="SVG preview area"
-          >
-            <div className="preview-artboard">
-              <div className="artboard-grid" />
-              {previewTab === 'preview' ? (
-                parseError ? (
-                  <div className="empty-state error-state">
-                    <strong>Parse error</strong>
-                    <p>{parseError}</p>
-                  </div>
-                ) : (
-                  <div
-                    className={`preview-viewport${isPanningPreview ? ' is-panning' : ''}`}
-                    aria-label="Preview viewport"
-                    style={{ transform: `translate(${previewViewport.offsetX}px, ${previewViewport.offsetY}px) scale(${previewViewport.scale})` }}
-                  >
-                    <div
-                      ref={previewFrameRef}
-                      className="svg-preview-frame"
-                      data-selection-style={selectionAppearancePreset}
-                      style={selectionAppearanceStyle}
-                      dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
-                    />
-                  </div>
-                )
-              ) : (
-                <pre className="markup-preview">{deferredSource}</pre>
-              )}
-            </div>
-          </div>
-
-          <div className="preview-overlay compact-overlay">
-            <div>
-              <span className="preview-kicker">{primaryNavItems.find((item) => item.id === activeSection)?.label}</span>
-              <strong>{statusSummary}</strong>
-            </div>
-            <p>
-              {activeSection === 'file'
-                ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
-                : activeSection === 'repair'
-                  ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
-                  : 'Choose an export preset on the left and use the selection inspector for style, animation, and interaction authoring.'}
-            </p>
-          </div>
-        </section>
-
-        <aside className={`panel inspector-panel side-panel${isRightCollapsed ? ' collapsed' : ''}`} ref={inspectorPanelRef}>
-          <div className="side-panel-header">
-            {!isRightCollapsed ? (
+        <div className={`workspace-stage inspector-${rightPanelMode}`}>
+          <section className="panel preview-panel">
+            <div className="panel-heading preview-heading">
               <div>
-                <p className="eyebrow">Inspection</p>
-                <h2>{inspectorTabLabels[inspectorTab]}</h2>
+                <p className="eyebrow">Live preview</p>
+                <h2>Preview workspace</h2>
               </div>
-            ) : null}
-            <button
-              className="collapse-button"
-              type="button"
-              onClick={() => setIsRightCollapsed((current) => !current)}
-              aria-label={isRightCollapsed ? 'Expand inspection panel' : 'Collapse inspection panel'}
+              <div className="preview-tabs" role="tablist" aria-label="Preview modes">
+                <button
+                  id={getPreviewTabButtonId('preview')}
+                  className={`preview-tab ${previewTab === 'preview' ? 'active' : ''}`}
+                  type="button"
+                  role="tab"
+                  tabIndex={previewTab === 'preview' ? 0 : -1}
+                  aria-selected={previewTab === 'preview'}
+                  aria-controls={getPreviewTabPanelId()}
+                  onClick={() => setPreviewTab('preview')}
+                  onKeyDown={(event) => handlePreviewTabKeyDown(event, 'preview')}
+                >
+                  Preview
+                </button>
+                <button
+                  id={getPreviewTabButtonId('source')}
+                  className={`preview-tab ${previewTab === 'source' ? 'active' : ''}`}
+                  type="button"
+                  role="tab"
+                  tabIndex={previewTab === 'source' ? 0 : -1}
+                  aria-selected={previewTab === 'source'}
+                  aria-controls={getPreviewTabPanelId()}
+                  onClick={() => setPreviewTab('source')}
+                  onKeyDown={(event) => handlePreviewTabKeyDown(event, 'source')}
+                >
+                  Markup
+                </button>
+              </div>
+            </div>
+
+            <div className="preview-toolbar" role="toolbar" aria-label="Preview navigation controls">
+              <div className="preview-control-group">
+                <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(-PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
+                  Zoom out
+                </button>
+                <p className="preview-zoom-readout" aria-live="polite">{Math.round(previewViewport.scale * 100)}%</p>
+                <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
+                  Zoom in
+                </button>
+                <button className="ghost-button preview-control" type="button" onClick={resetPreviewViewport} disabled={!isPreviewInteractive}>
+                  Reset view
+                </button>
+              </div>
+              <div className="preview-control-group">
+                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, -PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
+                  Pan up
+                </button>
+                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(-PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
+                  Pan left
+                </button>
+                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
+                  Pan right
+                </button>
+                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
+                  Pan down
+                </button>
+              </div>
+              <div className="preview-control-group timeline-control-group">
+                <button className="ghost-button preview-control" type="button" onClick={playPreviewTimeline} disabled={!isPreviewInteractive || isPreviewTimelinePlaying}>
+                  Play
+                </button>
+                <button className="ghost-button preview-control" type="button" onClick={pausePreviewTimeline} disabled={!isPreviewInteractive || !isPreviewTimelinePlaying}>
+                  Pause
+                </button>
+                <button className="ghost-button preview-control" type="button" onClick={restartPreviewTimeline} disabled={!isPreviewInteractive}>
+                  Restart
+                </button>
+                <label className="timeline-scrubber">
+                  <span>{previewTimelineSeconds.toFixed(1)}s</span>
+                  <input
+                    aria-label="Preview timeline"
+                    type="range"
+                    min="0"
+                    max={previewTimelineMax.toFixed(1)}
+                    step="0.1"
+                    value={Math.min(previewTimelineSeconds, previewTimelineMax)}
+                    onChange={(event) => scrubPreviewTimeline(Number(event.target.value))}
+                    onInput={(event) => scrubPreviewTimeline(Number((event.target as HTMLInputElement).value))}
+                    disabled={!isPreviewInteractive}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div
+              id={getPreviewTabPanelId()}
+              className={`preview-surface ${isDragging ? 'is-dragging' : ''}`}
+              role="tabpanel"
+              aria-labelledby={getPreviewTabButtonId(previewTab)}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => {
+                event.preventDefault();
+                setIsDragging(false);
+              }}
+              onDrop={handleDrop}
+              onPointerDown={handlePreviewPointerDown}
+              onPointerMove={handlePreviewPointerMove}
+              onPointerUp={handlePreviewPointerUp}
+              onPointerCancel={stopPreviewPan}
+              onLostPointerCapture={stopPreviewPan}
+              onWheel={handlePreviewWheel}
+              aria-label="SVG preview area"
             >
-              {isRightCollapsed ? '<' : '>'}
-            </button>
-          </div>
-
-          {!isRightCollapsed ? (
-            <>
-              <div className="inspector-tabs" role="tablist" aria-label="Inspection sections" data-fit-container>
-                {availableInspectorTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    id={getInspectorTabButtonId(tab)}
-                    className={`inspector-tab${inspectorTab === tab ? ' active' : ''}`}
-                    type="button"
-                    role="tab"
-                    tabIndex={inspectorTab === tab ? 0 : -1}
-                    aria-selected={inspectorTab === tab}
-                    aria-controls={getInspectorTabPanelId()}
-                    onClick={() => setInspectorTab(tab)}
-                    onKeyDown={(event) => handleInspectorTabKeyDown(event, tab)}
-                  >
-                    {inspectorTabLabels[tab]}
-                  </button>
-                ))}
+              <div className="preview-artboard">
+                <div className="artboard-grid" />
+                {previewTab === 'preview' ? (
+                  parseError ? (
+                    <div className="empty-state error-state">
+                      <strong>Parse error</strong>
+                      <p>{parseError}</p>
+                    </div>
+                  ) : (
+                    <div
+                      className={`preview-viewport${isPanningPreview ? ' is-panning' : ''}`}
+                      aria-label="Preview viewport"
+                      style={{ transform: `translate(${previewViewport.offsetX}px, ${previewViewport.offsetY}px) scale(${previewViewport.scale})` }}
+                    >
+                      <div
+                        ref={previewFrameRef}
+                        className="svg-preview-frame"
+                        data-selection-style={selectionAppearancePreset}
+                        style={selectionAppearanceStyle}
+                        dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
+                      />
+                    </div>
+                  )
+                ) : (
+                  <pre className="markup-preview">{deferredSource}</pre>
+                )}
               </div>
+            </div>
 
-              <div
-                id={getInspectorTabPanelId()}
-                className="side-panel-body inspector-panel-body"
-                role="tabpanel"
-                aria-labelledby={getInspectorTabButtonId(inspectorTab)}
-                tabIndex={0}
+            <div className="preview-overlay compact-overlay">
+              <div>
+                <span className="preview-kicker">{primaryNavItems.find((item) => item.id === activeSection)?.label}</span>
+                <strong>{statusSummary}</strong>
+              </div>
+              <p>
+                {activeSection === 'file'
+                  ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
+                  : activeSection === 'repair'
+                    ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
+                    : 'Choose an export preset on the left and use the selection inspector for style, animation, and interaction authoring.'}
+              </p>
+            </div>
+          </section>
+
+          <aside className={`panel inspector-panel side-panel${isRightCollapsed ? ' collapsed' : ''}`} ref={inspectorPanelRef}>
+            <div className="side-panel-header">
+              {!isRightCollapsed ? (
+                <div>
+                  <p className="eyebrow">Inspection</p>
+                  <h2>{inspectorTabLabels[inspectorTab]}</h2>
+                </div>
+              ) : null}
+              <button
+                className="collapse-button"
+                type="button"
+                onClick={() => setRightPanelMode((current) => getNextRightPanelMode(current))}
+                aria-label={getRightPanelToggleLabel(rightPanelMode)}
+                aria-expanded={!isRightCollapsed}
               >
-                {renderInspectorContent()}
-              </div>
-            </>
-          ) : (
-            <div className="collapsed-panel-label">Inspect</div>
-          )}
-        </aside>
+                {getRightPanelToggleIcon(rightPanelMode)}
+              </button>
+            </div>
+
+            {!isRightCollapsed ? (
+              <>
+                <div className="inspector-tabs" role="tablist" aria-label="Inspection sections" data-fit-container>
+                  {availableInspectorTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      id={getInspectorTabButtonId(tab)}
+                      className={`inspector-tab${inspectorTab === tab ? ' active' : ''}`}
+                      type="button"
+                      role="tab"
+                      tabIndex={inspectorTab === tab ? 0 : -1}
+                      aria-selected={inspectorTab === tab}
+                      aria-controls={getInspectorTabPanelId()}
+                      onClick={() => setInspectorTab(tab)}
+                      onKeyDown={(event) => handleInspectorTabKeyDown(event, tab)}
+                    >
+                      {inspectorTabLabels[tab]}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  id={getInspectorTabPanelId()}
+                  className="side-panel-body inspector-panel-body"
+                  role="tabpanel"
+                  aria-labelledby={getInspectorTabButtonId(inspectorTab)}
+                  tabIndex={0}
+                >
+                  {renderInspectorContent()}
+                </div>
+              </>
+            ) : (
+              <div className="collapsed-panel-label">Inspect</div>
+            )}
+          </aside>
+        </div>
       </main>
     </div>
   );
