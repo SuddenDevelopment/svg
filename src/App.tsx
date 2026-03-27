@@ -30,6 +30,7 @@ import type { Analysis } from './lib/svg-analysis';
 import type {
   AnimationDraft,
   AnimationEasing,
+  AnimationMorphTarget,
   AnimationMotionDirection,
   AnimationPresetId,
   AnimationReplaceMode,
@@ -72,6 +73,14 @@ import {
   inlineSimpleStyles,
   normalizeShapesToPaths,
 } from './lib/svg-normalization';
+import {
+  applyStyleDraftToSource,
+  createStyleDraft,
+  inferStyleDraftForPath,
+  isPaintKeyword,
+  paintValueToColorInput,
+} from './lib/svg-style';
+import type { StyleDraft } from './lib/svg-style';
 
 type PreviewTab = 'preview' | 'source';
 type WorkspaceSection = 'file' | 'repair' | 'export';
@@ -574,6 +583,7 @@ function App() {
   const fontInputId = useId();
   const sourceId = useId();
   const resourcesDialogTitleId = useId();
+  const settingsDialogTitleId = useId();
   const inspectorTabsId = useId();
   const selectionFacetTabsId = useId();
   const previewTabsId = useId();
@@ -614,6 +624,8 @@ function App() {
   const [animationMessage, setAnimationMessage] = useState<string | null>(null);
   const [interactionDraft, setInteractionDraft] = useState(() => createInteractionDraft());
   const [interactionMessage, setInteractionMessage] = useState<string | null>(null);
+  const [styleDraft, setStyleDraft] = useState<StyleDraft>(() => createStyleDraft());
+  const [styleMessage, setStyleMessage] = useState<string | null>(null);
   const [previewTimelineSeconds, setPreviewTimelineSeconds] = useState(0);
   const [isPreviewTimelinePlaying, setIsPreviewTimelinePlaying] = useState(true);
   const [hoveredPreviewNodeIds, setHoveredPreviewNodeIds] = useState<string[]>([]);
@@ -637,6 +649,7 @@ function App() {
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFontAsset[]>([]);
   const [fontMappings, setFontMappings] = useState<FontMapping>({});
   const [isResourcesOpen, setIsResourcesOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('file');
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
   const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
@@ -801,6 +814,24 @@ function App() {
       window.removeEventListener('keydown', handleWindowKeyDown);
     };
   }, [isResourcesOpen]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) {
+      return;
+    }
+
+    const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown);
+    };
+  }, [isSettingsOpen]);
 
   useEffect(() => {
     const container = previewFrameRef.current;
@@ -1046,6 +1077,15 @@ function App() {
         : createInteractionDraft(),
     );
     setInteractionMessage(null);
+  }, [fileName, selectedNodeId]);
+
+  useEffect(() => {
+    setStyleDraft(
+      selectedNode
+        ? inferStyleDraftForPath(source, selectedNode.path) ?? createStyleDraft(selectedNode.attributes)
+        : createStyleDraft(),
+    );
+    setStyleMessage(null);
   }, [fileName, selectedNodeId]);
 
   useEffect(() => {
@@ -1643,6 +1683,10 @@ function App() {
     setIsResourcesOpen(false);
   }
 
+  function closeSettingsModal() {
+    setIsSettingsOpen(false);
+  }
+
   function selectSection(section: WorkspaceSection) {
     setActiveSection(section);
     setInspectorTab(defaultInspectorTabBySection[section]);
@@ -2011,7 +2055,7 @@ function App() {
     setAnimationMessage(null);
   }
 
-  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'turnDegrees' | 'startScale' | 'midScale' | 'endScale' | 'orbitRadiusX' | 'orbitRadiusY'>, value: number) {
+  function updateAnimationNumberField(field: keyof Pick<AnimationDraft, 'durationSeconds' | 'delaySeconds' | 'repeatCount' | 'startOpacity' | 'midOpacity' | 'endOpacity' | 'motionDistance' | 'turnDegrees' | 'startScale' | 'midScale' | 'endScale' | 'orbitRadiusX' | 'orbitRadiusY' | 'morphAmount'>, value: number) {
     setAnimationDraft((current) => ({
       ...current,
       [field]: Number.isFinite(value) ? value : 0,
@@ -2028,8 +2072,8 @@ function App() {
   }
 
   function updateAnimationSelectField(
-    field: keyof Pick<AnimationDraft, 'startMode' | 'easing' | 'motionDirection' | 'turnDirection' | 'rotateMode' | 'repeatMode' | 'fillMode'>,
-    value: AnimationStartMode | AnimationEasing | AnimationMotionDirection | AnimationTurnDirection | AnimationRotateMode | AnimationDraft['repeatMode'] | AnimationDraft['fillMode'],
+    field: keyof Pick<AnimationDraft, 'startMode' | 'easing' | 'motionDirection' | 'turnDirection' | 'rotateMode' | 'repeatMode' | 'fillMode' | 'morphTarget'>,
+    value: AnimationStartMode | AnimationEasing | AnimationMotionDirection | AnimationTurnDirection | AnimationRotateMode | AnimationMorphTarget | AnimationDraft['repeatMode'] | AnimationDraft['fillMode'],
   ) {
     setAnimationDraft((current) => ({
       ...current,
@@ -2374,6 +2418,44 @@ function App() {
       );
     } catch (error) {
       setInteractionMessage(error instanceof Error ? error.message : 'Unable to update interaction attributes.');
+    }
+  }
+
+  function updateStyleDraftField(field: keyof StyleDraft, value: string) {
+    setStyleDraft((current) => ({ ...current, [field]: value }));
+    setStyleMessage(null);
+  }
+
+  function reloadStyleDraftFromSelection() {
+    setStyleDraft(
+      selectedNode
+        ? inferStyleDraftForPath(source, selectedNode.path) ?? createStyleDraft(selectedNode.attributes)
+        : createStyleDraft(),
+    );
+    setStyleMessage(selectedNode ? 'Reloaded style fields from the inspected element.' : 'Select an element to inspect its style properties.');
+  }
+
+  function applyStyleToSelection() {
+    if (authorableSelectionPaths.length === 0) {
+      setStyleMessage('Select at least one preview element to update style attributes.');
+      return;
+    }
+
+    try {
+      const result = applyStyleDraftToSource(source, authorableSelectionPaths, styleDraft);
+      commitRepairSource(
+        result.source,
+        result.updatedCount > 0
+          ? `Updated style attributes on ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`
+          : 'The selected style attributes already match the current selection.',
+      );
+      setStyleMessage(
+        result.skippedPaths.length > 0
+          ? `Updated ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
+          : `Applied style properties to ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`,
+      );
+    } catch (error) {
+      setStyleMessage(error instanceof Error ? error.message : 'Unable to update style attributes.');
     }
   }
 
@@ -2764,6 +2846,27 @@ function App() {
                   <input type="text" value={animationDraft.colorTo} onChange={(event) => updateAnimationTextField('colorTo', event.target.value)} />
                 </label>
               </>
+            ) : animationDraft.presetId === 'path-morph' ? (
+              <>
+                <label className="animation-field animation-field-split">
+                  <span>Morph target</span>
+                  <select value={animationDraft.morphTarget} onChange={(event) => updateAnimationSelectField('morphTarget', event.target.value as AnimationMorphTarget)}>
+                    <option value="circle">Toward circle</option>
+                    <option value="jitter">Random jitter</option>
+                  </select>
+                </label>
+                <label className="animation-field animation-field-split">
+                  <span>{animationDraft.morphTarget === 'jitter' ? 'Jitter amount (units)' : 'Morph strength (%)'}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={animationDraft.morphTarget === 'jitter' ? undefined : 100}
+                    step={animationDraft.morphTarget === 'jitter' ? 1 : 5}
+                    value={animationDraft.morphAmount}
+                    onChange={(event) => updateAnimationNumberField('morphAmount', Number(event.target.value))}
+                  />
+                </label>
+              </>
             ) : (
               <>
                 <label className="animation-field animation-field-split">
@@ -2916,6 +3019,19 @@ function App() {
                     </label>
                   </>
                 ) : null}
+                {animationDraft.presetId === 'path-morph' ? (
+                  <label className="animation-field">
+                    <span>{animationDraft.morphTarget === 'jitter' ? 'Jitter amount override' : 'Morph strength override (%)'}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={animationDraft.morphTarget === 'jitter' ? undefined : 100}
+                      step={animationDraft.morphTarget === 'jitter' ? 1 : 5}
+                      value={activeAnimationOverride?.morphAmount ?? animationDraft.morphAmount}
+                      onChange={(event) => updateActiveTargetOverride('morphAmount', Number(event.target.value))}
+                    />
+                  </label>
+                ) : null}
               </div>
               <div className="animation-target-actions" role="toolbar" aria-label="Target override actions">
                 <button className="ghost-button" type="button" onClick={clearActiveTargetOverride}>
@@ -2950,6 +3066,205 @@ function App() {
             </button>
           </div>
           {animationMessage ? <p className="repair-note">{animationMessage}</p> : null}
+        </section>
+      </>
+    );
+  }
+
+  function renderStyleFacetSection() {
+    const hasFillKeyword = isPaintKeyword(styleDraft.fill);
+    const hasStrokeKeyword = isPaintKeyword(styleDraft.stroke);
+
+    return (
+      <>
+        <section className="status-card compact-card">
+          <p className="status-label">Style authoring</p>
+          <strong>{authorableSelectionPaths.length} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}</strong>
+          <p>Edit fill, stroke, and visibility attributes on the current preview selection.</p>
+        </section>
+
+        <section className="focus-card section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Style properties</h3>
+            <span className="status-label">Selection-driven</span>
+          </div>
+          <p className="section-copy">
+            These fields write SVG presentation attributes directly on selected elements. Empty fields leave the attribute unchanged (or remove it if it was previously set by this panel). Reload to sync from the inspected element.
+          </p>
+
+          <div className="style-form-grid">
+            <div className="style-paint-field">
+              <label className="animation-field" htmlFor="style-fill-text">
+                <span>Fill</span>
+                <div className="style-paint-row">
+                  <input
+                    type="color"
+                    className="style-color-swatch"
+                    aria-label="Fill color picker"
+                    value={paintValueToColorInput(styleDraft.fill)}
+                    disabled={hasFillKeyword}
+                    onChange={(event) => updateStyleDraftField('fill', event.target.value)}
+                  />
+                  <input
+                    id="style-fill-text"
+                    type="text"
+                    value={styleDraft.fill}
+                    placeholder="inherit"
+                    onChange={(event) => updateStyleDraftField('fill', event.target.value)}
+                  />
+                </div>
+              </label>
+            </div>
+
+            <div className="style-paint-field">
+              <label className="animation-field" htmlFor="style-stroke-text">
+                <span>Stroke</span>
+                <div className="style-paint-row">
+                  <input
+                    type="color"
+                    className="style-color-swatch"
+                    aria-label="Stroke color picker"
+                    value={paintValueToColorInput(styleDraft.stroke)}
+                    disabled={hasStrokeKeyword}
+                    onChange={(event) => updateStyleDraftField('stroke', event.target.value)}
+                  />
+                  <input
+                    id="style-stroke-text"
+                    type="text"
+                    value={styleDraft.stroke}
+                    placeholder="none"
+                    onChange={(event) => updateStyleDraftField('stroke', event.target.value)}
+                  />
+                </div>
+              </label>
+            </div>
+
+            <label className="animation-field">
+              <span>Stroke width</span>
+              <input
+                type="text"
+                value={styleDraft.strokeWidth}
+                placeholder="1"
+                onChange={(event) => updateStyleDraftField('strokeWidth', event.target.value)}
+              />
+            </label>
+
+            <label className="animation-field">
+              <span>Opacity</span>
+              <div className="style-range-row">
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={styleDraft.opacity !== '' ? String(Math.max(0, Math.min(1, Number(styleDraft.opacity)))) : '1'}
+                  onChange={(event) => updateStyleDraftField('opacity', event.target.value)}
+                />
+                <input
+                  type="text"
+                  className="style-range-number"
+                  value={styleDraft.opacity}
+                  placeholder="1"
+                  onChange={(event) => updateStyleDraftField('opacity', event.target.value)}
+                />
+              </div>
+            </label>
+
+            <label className="animation-field">
+              <span>Fill opacity</span>
+              <div className="style-range-row">
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={styleDraft.fillOpacity !== '' ? String(Math.max(0, Math.min(1, Number(styleDraft.fillOpacity)))) : '1'}
+                  onChange={(event) => updateStyleDraftField('fillOpacity', event.target.value)}
+                />
+                <input
+                  type="text"
+                  className="style-range-number"
+                  value={styleDraft.fillOpacity}
+                  placeholder="1"
+                  onChange={(event) => updateStyleDraftField('fillOpacity', event.target.value)}
+                />
+              </div>
+            </label>
+
+            <label className="animation-field">
+              <span>Stroke opacity</span>
+              <div className="style-range-row">
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={styleDraft.strokeOpacity !== '' ? String(Math.max(0, Math.min(1, Number(styleDraft.strokeOpacity)))) : '1'}
+                  onChange={(event) => updateStyleDraftField('strokeOpacity', event.target.value)}
+                />
+                <input
+                  type="text"
+                  className="style-range-number"
+                  value={styleDraft.strokeOpacity}
+                  placeholder="1"
+                  onChange={(event) => updateStyleDraftField('strokeOpacity', event.target.value)}
+                />
+              </div>
+            </label>
+
+            <label className="animation-field">
+              <span>Display</span>
+              <select
+                value={styleDraft.display}
+                onChange={(event) => updateStyleDraftField('display', event.target.value)}
+              >
+                <option value="">Inherit / unset</option>
+                <option value="inline">inline</option>
+                <option value="none">none</option>
+                <option value="block">block</option>
+              </select>
+            </label>
+
+            <label className="animation-field">
+              <span>Visibility</span>
+              <select
+                value={styleDraft.visibility}
+                onChange={(event) => updateStyleDraftField('visibility', event.target.value)}
+              >
+                <option value="">Inherit / unset</option>
+                <option value="visible">visible</option>
+                <option value="hidden">hidden</option>
+                <option value="collapse">collapse</option>
+              </select>
+            </label>
+
+            <label className="animation-field">
+              <span>Fill rule</span>
+              <select
+                value={styleDraft.fillRule}
+                onChange={(event) => updateStyleDraftField('fillRule', event.target.value)}
+              >
+                <option value="">Inherit / unset</option>
+                <option value="nonzero">nonzero</option>
+                <option value="evenodd">evenodd</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="animation-target-actions" role="toolbar" aria-label="Style actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={applyStyleToSelection}
+              disabled={authorableSelectionPaths.length === 0}
+            >
+              Apply to {authorableSelectionPaths.length || 0} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}
+            </button>
+            <button className="ghost-button" type="button" onClick={reloadStyleDraftFromSelection}>
+              Reload from inspected element
+            </button>
+          </div>
+          {styleMessage ? <p className="repair-note">{styleMessage}</p> : null}
         </section>
       </>
     );
@@ -3835,7 +4150,7 @@ function App() {
                 tabIndex={0}
               >
                 {selectionFacet === 'style'
-                  ? renderSelectionStyleSection()
+                  ? renderStyleFacetSection()
                   : selectionFacet === 'animate'
                     ? renderAnimationSection()
                     : renderInteractionSection()}
@@ -4068,6 +4383,9 @@ function App() {
           <h1>SVG Workbench</h1>
         </div>
         <div className="topbar-actions">
+          <button className="ghost-button" type="button" onClick={() => setIsSettingsOpen(true)}>
+            Settings
+          </button>
           <button className="ghost-button resources-trigger" type="button" onClick={() => setIsResourcesOpen(true)}>
             Resources
           </button>
@@ -4169,6 +4487,31 @@ function App() {
                 </a>
               ))}
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isSettingsOpen ? (
+        <div
+          className="resources-modal-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeSettingsModal();
+            }
+          }}
+        >
+          <section className="resources-modal panel" role="dialog" aria-modal="true" aria-labelledby={settingsDialogTitleId}>
+            <div className="resources-modal-header">
+              <div>
+                <p className="eyebrow resources-modal-eyebrow">Workbench settings</p>
+                <h2 id={settingsDialogTitleId}>Workbench Settings</h2>
+              </div>
+              <button className="ghost-button resources-close-button" type="button" onClick={closeSettingsModal}>
+                Close
+              </button>
+            </div>
+            {renderSelectionStyleSection()}
           </section>
         </div>
       ) : null}
@@ -4423,9 +4766,7 @@ function App() {
                   {renderInspectorContent()}
                 </div>
               </>
-            ) : (
-              <div className="collapsed-panel-label">Inspect</div>
-            )}
+            ) : null}
           </aside>
         </div>
       </main>

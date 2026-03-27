@@ -9,11 +9,20 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+function ensureInspectorExpanded() {
+  const toggle = screen.getByRole('button', { name: /inspection panel/i });
+  if (toggle.getAttribute('aria-expanded') === 'false') {
+    fireEvent.click(toggle);
+  }
+}
+
 function openWorkspaceSection(name: 'File' | 'Repair' | 'Export') {
   fireEvent.click(screen.getByRole('button', { name }));
+  ensureInspectorExpanded();
 }
 
 function openSelectionTool(name: 'Style' | 'Animate' | 'Interact') {
+  ensureInspectorExpanded();
   fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
   fireEvent.click(screen.getByRole('tab', { name }));
 }
@@ -85,6 +94,10 @@ describe('App', () => {
     render(<App />);
 
     expect(screen.getAllByText('sample.svg').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Inspect')).not.toBeInTheDocument();
+
+    ensureInspectorExpanded();
+
     expect(screen.getByText('Document stats')).toBeInTheDocument();
     expect(screen.getByText('Featured tags')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Inspect' })).not.toBeInTheDocument();
@@ -112,6 +125,7 @@ describe('App', () => {
 
   it('wires the inspection controls as accessible tabs with keyboard navigation', () => {
     render(<App />);
+    ensureInspectorExpanded();
 
     const overviewTab = screen.getByRole('tab', { name: 'Overview' });
     const warningsTab = screen.getByRole('tab', { name: 'Warnings' });
@@ -159,6 +173,7 @@ describe('App', () => {
 
   it('wires the selected element tools as accessible tabs with keyboard navigation', () => {
     render(<App />);
+    ensureInspectorExpanded();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
 
@@ -217,6 +232,7 @@ describe('App', () => {
       },
     });
 
+    ensureInspectorExpanded();
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
 
     await waitFor(() => {
@@ -465,6 +481,8 @@ describe('App', () => {
       clientY: 18,
     });
 
+    ensureInspectorExpanded();
+
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Selected element' })).toBeInTheDocument();
     });
@@ -483,55 +501,26 @@ describe('App', () => {
   it('lets the selection inspector switch preview highlight presets', async () => {
     const { container } = render(<App />);
 
-    const previewSurface = screen.getByLabelText('SVG preview area');
-    const previewText = container.querySelector('.svg-preview-frame svg text');
     const previewFrame = container.querySelector('.svg-preview-frame');
-    expect(previewText).not.toBeNull();
     expect(previewFrame).not.toBeNull();
 
-    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
-    try {
-      Object.defineProperty(document, 'elementFromPoint', {
-        configurable: true,
-        value: vi.fn(() => previewText),
-      });
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Selection appearance' })).toBeInTheDocument();
+    });
 
-      fireEvent.pointerDown(previewSurface, {
-        button: 0,
-        pointerId: 7,
-        clientX: 24,
-        clientY: 18,
-      });
-      fireEvent.pointerUp(previewSurface, {
-        button: 0,
-        pointerId: 7,
-        clientX: 24,
-        clientY: 18,
-      });
+    expect(previewFrame).toHaveAttribute('data-selection-style', 'studio');
+    expect(screen.getByRole('button', { name: /Studio/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Animation target')).toBeInTheDocument();
 
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Selection appearance' })).toBeInTheDocument();
-      });
+    fireEvent.click(screen.getByRole('button', { name: /Signal/ }));
 
-      expect(previewFrame).toHaveAttribute('data-selection-style', 'studio');
-      expect(screen.getByRole('button', { name: /Studio/ })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByText('Animation target')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: /Signal/ }));
-
-      expect(previewFrame).toHaveAttribute('data-selection-style', 'signal');
-      expect(screen.getByRole('button', { name: /Signal/ })).toHaveAttribute('aria-pressed', 'true');
-      expect(JSON.parse(window.localStorage.getItem('svg-workbench.selection-appearance') ?? '{}')).toMatchObject({
-        preset: 'signal',
-      });
-    } finally {
-      if (originalElementFromPoint) {
-        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
-      } else {
-        Reflect.deleteProperty(document, 'elementFromPoint');
-      }
-    }
+    expect(previewFrame).toHaveAttribute('data-selection-style', 'signal');
+    expect(screen.getByRole('button', { name: /Signal/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(JSON.parse(window.localStorage.getItem('svg-workbench.selection-appearance') ?? '{}')).toMatchObject({
+      preset: 'signal',
+    });
   });
 
   it('persists per-state selection highlight controls and removes hidden preview highlights', async () => {
@@ -562,6 +551,8 @@ describe('App', () => {
         clientY: 18,
       });
 
+      fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Selection appearance' })).toBeInTheDocument();
       });
@@ -589,7 +580,7 @@ describe('App', () => {
       unmount();
 
       render(<App />);
-      fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
       expect(screen.getByRole('checkbox', { name: 'Selected node highlight visible' })).not.toBeChecked();
       expect(screen.getByRole('combobox', { name: 'Selected node highlight intensity' })).toHaveValue('soft');
@@ -605,7 +596,7 @@ describe('App', () => {
   it('exports, resets, and imports selection appearance preset JSON', async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     fireEvent.click(screen.getByRole('button', { name: /Signal/ }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Risk hover highlight intensity' }), {
@@ -715,6 +706,8 @@ describe('App', () => {
       await waitFor(() => {
         expect(container.querySelectorAll('[data-svg-node-selected="true"]').length).toBe(2);
       });
+
+      ensureInspectorExpanded();
 
       expect(screen.getByText('circle', { selector: '.selection-tag' })).toBeInTheDocument();
       expect(screen.getByText('2 preview elements are selected. The inspector is showing the most recently inspected element.')).toBeInTheDocument();
@@ -1342,6 +1335,7 @@ describe('App', () => {
 
   it('highlights risky preview nodes when hovering a risk entry', async () => {
     const { container } = render(<App />);
+    ensureInspectorExpanded();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Warnings' }));
 

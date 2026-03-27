@@ -280,4 +280,54 @@ describe('svg-animation', () => {
     expect(draft?.midScale).toBe(1.28);
     expect(draft?.endScale).toBe(1.08);
   });
+
+  it('applies a path-morph circle preset to a path element', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M 10 50 L 90 50 L 50 10 Z" /></svg>';
+    const draft = createAnimationDraft('path-morph', { morphTarget: 'circle', morphAmount: 80 });
+
+    const result = applyAnimationPresetToSource(source, ['0.0'], draft);
+
+    expect(result.appliedCount).toBe(1);
+    expect(result.source).toContain('<animate');
+    expect(result.source).toContain('attributeName="d"');
+    expect(result.source).toContain('data-svg-workbench-animation-preset="path-morph"');
+    expect(result.source).toContain('from=');
+    expect(result.source).toContain('to=');
+  });
+
+  it('applies a path-morph jitter preset to a path element', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M 0 0 L 100 0 L 100 100 L 0 100 Z" /></svg>';
+    const draft = createAnimationDraft('path-morph', { morphTarget: 'jitter', morphAmount: 12 });
+
+    const result = applyAnimationPresetToSource(source, ['0.0'], draft);
+
+    expect(result.appliedCount).toBe(1);
+    expect(result.source).toContain('attributeName="d"');
+    expect(result.source).toContain('data-svg-workbench-animation-preset="path-morph"');
+    // from and to should differ because jitter offsets the points
+    const fromMatch = result.source.match(/from="([^"]+)"/);
+    const toMatch = result.source.match(/to="([^"]+)"/);
+    expect(fromMatch).not.toBeNull();
+    expect(toMatch).not.toBeNull();
+    expect(fromMatch![1]).not.toBe(toMatch![1]);
+  });
+
+  it('skips path-morph when element has no d attribute', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12" /></svg>';
+    const draft = createAnimationDraft('path-morph');
+
+    const result = applyAnimationPresetToSource(source, ['0.0'], draft);
+
+    expect(result.appliedCount).toBe(0);
+    expect(result.skippedPaths).toEqual(['0.0']);
+  });
+
+  it('infers a path-morph draft from a native d attribute animate', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M 10 50 L 90 50 L 50 10 Z"><animate attributeName="d" from="M 10 50 L 90 50 L 50 10 Z" to="M 50 10 L 90 90 L 10 90 Z" dur="1.5s" repeatCount="indefinite" /></path></svg>';
+    const draft = inferAnimationDraftForPath(source, '0.0');
+
+    expect(draft?.presetId).toBe('path-morph');
+    expect(draft?.durationSeconds).toBe(1.5);
+    expect(draft?.repeatMode).toBe('indefinite');
+  });
 });

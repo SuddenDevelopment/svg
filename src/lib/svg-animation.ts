@@ -1,4 +1,5 @@
-export type AnimationPresetId = 'fade-in' | 'pulse' | 'drift' | 'blink' | 'random-flicker' | 'rotate' | 'scale' | 'orbit' | 'color-shift';
+export type AnimationPresetId = 'fade-in' | 'pulse' | 'drift' | 'blink' | 'random-flicker' | 'rotate' | 'scale' | 'orbit' | 'color-shift' | 'path-morph';
+export type AnimationMorphTarget = 'circle' | 'jitter';
 
 export type AnimationRepeatMode = 'indefinite' | 'count';
 export type AnimationStartMode = 'load' | 'click';
@@ -34,6 +35,8 @@ export type AnimationDraft = {
   colorFrom: string;
   colorMid: string;
   colorTo: string;
+  morphTarget: AnimationMorphTarget;
+  morphAmount: number;
 };
 
 export type AnimationPresetDefinition = {
@@ -127,6 +130,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -158,6 +163,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -189,6 +196,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -220,6 +229,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -251,6 +262,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -282,6 +295,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -313,6 +328,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -344,6 +361,8 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
   {
@@ -375,6 +394,41 @@ export const animationPresets: AnimationPresetDefinition[] = [
       colorFrom: '#ff8a3d',
       colorMid: '#ffd166',
       colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
+    },
+  },
+  {
+    id: 'path-morph',
+    label: 'Path morph',
+    description: 'Animate path outline points by morphing the shape toward a circle or jittering each point by a random offset.',
+    defaults: {
+      presetId: 'path-morph',
+      durationSeconds: 2,
+      delaySeconds: 0,
+      repeatMode: 'indefinite',
+      repeatCount: 2,
+      fillMode: 'remove',
+      startMode: 'load',
+      easing: 'ease-in-out',
+      startOpacity: 1,
+      midOpacity: 1,
+      endOpacity: 1,
+      motionDirection: 'up',
+      motionDistance: 20,
+      turnDirection: 'clockwise',
+      turnDegrees: 180,
+      startScale: 1,
+      midScale: 1.12,
+      endScale: 1,
+      orbitRadiusX: 20,
+      orbitRadiusY: 12,
+      rotateMode: 'none',
+      colorFrom: '#ff8a3d',
+      colorMid: '#ffd166',
+      colorTo: '#1f7a8c',
+      morphTarget: 'circle',
+      morphAmount: 80,
     },
   },
 ];
@@ -744,7 +798,220 @@ function createColorShiftAnimation(documentRoot: XMLDocument, draft: AnimationDr
   }, draft.easing, 2));
 }
 
-function createAnimationNodes(documentRoot: XMLDocument, draft: AnimationDraft) {
+// ─── Path morph helpers ──────────────────────────────────────────────────────
+
+const PATH_ARGS_PER_STEP: Record<string, number> = {
+  M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0,
+};
+
+type PathStep = { cmd: string; nums: number[] };
+
+function tokenizePathData(d: string): PathStep[] {
+  const result: PathStep[] = [];
+  const re = /([MmZzLlHhVvCcSsQqTtAa])([^MmZzLlHhVvCcSsQqTtAa]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(d)) !== null) {
+    const cmd = m[1]!;
+    const raw = m[2]!.trim();
+    const nums = raw
+      ? (raw.match(/-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g) ?? []).map(Number)
+      : [];
+    result.push({ cmd, nums });
+  }
+  return result;
+}
+
+function absolutizePath(tokens: PathStep[]): PathStep[] {
+  const result: PathStep[] = [];
+  let cx = 0;
+  let cy = 0;
+  let sx = 0;
+  let sy = 0;
+
+  for (const { cmd, nums } of tokens) {
+    const upper = cmd.toUpperCase();
+    const rel = cmd !== upper;
+
+    if (upper === 'Z') {
+      result.push({ cmd: 'Z', nums: [] });
+      cx = sx;
+      cy = sy;
+      continue;
+    }
+
+    const step = PATH_ARGS_PER_STEP[upper] ?? 2;
+    const count = step === 0 ? 1 : Math.max(1, Math.floor(nums.length / step));
+
+    for (let i = 0; i < count; i++) {
+      const slice = nums.slice(i * step, (i + 1) * step);
+      let out: number[];
+
+      if (upper === 'H') {
+        out = [rel ? cx + (slice[0] ?? 0) : (slice[0] ?? cx)];
+        cx = out[0]!;
+      } else if (upper === 'V') {
+        out = [rel ? cy + (slice[0] ?? 0) : (slice[0] ?? cy)];
+        cy = out[0]!;
+      } else if (upper === 'A') {
+        out = [...slice];
+        if (rel) {
+          out[5] = (slice[5] ?? 0) + cx;
+          out[6] = (slice[6] ?? 0) + cy;
+        }
+        cx = out[5] ?? cx;
+        cy = out[6] ?? cy;
+      } else {
+        out = rel ? slice.map((v, idx) => v + (idx % 2 === 0 ? cx : cy)) : [...slice];
+        cx = out[out.length - 2] ?? cx;
+        cy = out[out.length - 1] ?? cy;
+      }
+
+      const effectiveCmd = upper === 'M' && i > 0 ? 'L' : upper;
+      if (upper === 'M' && i === 0) {
+        sx = cx;
+        sy = cy;
+      }
+      result.push({ cmd: effectiveCmd, nums: out });
+    }
+  }
+  return result;
+}
+
+function serializePathSteps(steps: PathStep[]): string {
+  return steps
+    .map(({ cmd, nums }) =>
+      nums.length === 0 ? cmd : `${cmd} ${nums.map((n) => Number(n.toFixed(3))).join(' ')}`,
+    )
+    .join(' ');
+}
+
+function getPathAnchorPoints(steps: PathStep[]): Array<{ x: number; y: number }> {
+  const points: Array<{ x: number; y: number }> = [];
+  for (const { cmd, nums } of steps) {
+    if (cmd === 'Z') { continue; }
+    if (cmd === 'H') {
+      points.push({ x: nums[0] ?? 0, y: 0 });
+    } else if (cmd === 'V') {
+      points.push({ x: 0, y: nums[0] ?? 0 });
+    } else if (cmd === 'A') {
+      points.push({ x: nums[5] ?? 0, y: nums[6] ?? 0 });
+    } else {
+      points.push({ x: nums[nums.length - 2] ?? 0, y: nums[nums.length - 1] ?? 0 });
+    }
+  }
+  return points;
+}
+
+function computePathBoundingBox(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) { return { cx: 0, cy: 0, r: 0 }; }
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    cx: (minX + maxX) / 2,
+    cy: (minY + maxY) / 2,
+    r: Math.max((maxX - minX) / 2, (maxY - minY) / 2),
+  };
+}
+
+function morphPathStepsToCircle(
+  steps: PathStep[],
+  bbox: ReturnType<typeof computePathBoundingBox>,
+  amount: number,
+): PathStep[] {
+  const t = Math.min(1, Math.max(0, amount / 100));
+  const { cx, cy, r } = bbox;
+  const safeR = r || 1;
+
+  return steps.map(({ cmd, nums }) => {
+    if (cmd === 'Z' || nums.length === 0) { return { cmd, nums }; }
+    const morphed = [...nums];
+
+    if (cmd === 'H') {
+      const x = morphed[0] ?? 0;
+      morphed[0] = x + (cx + safeR * Math.cos(Math.atan2(0, x - cx)) - x) * t;
+    } else if (cmd === 'V') {
+      const y = morphed[0] ?? 0;
+      morphed[0] = y + (cy + safeR * Math.sin(Math.atan2(y - cy, 0)) - y) * t;
+    } else if (cmd === 'A') {
+      const ax = morphed[5] ?? 0;
+      const ay = morphed[6] ?? 0;
+      const angle = Math.atan2(ay - cy, ax - cx);
+      morphed[5] = ax + (cx + safeR * Math.cos(angle) - ax) * t;
+      morphed[6] = ay + (cy + safeR * Math.sin(angle) - ay) * t;
+    } else {
+      for (let i = 0; i < morphed.length - 1; i += 2) {
+        const x = morphed[i] ?? 0;
+        const y = morphed[i + 1] ?? 0;
+        const angle = Math.atan2(y - cy, x - cx);
+        morphed[i] = x + (cx + safeR * Math.cos(angle) - x) * t;
+        morphed[i + 1] = y + (cy + safeR * Math.sin(angle) - y) * t;
+      }
+    }
+    return { cmd, nums: morphed };
+  });
+}
+
+function seededJitterOffset(index: number, scale: number): number {
+  const raw = Math.sin(index * 127.1 + 311.7) * 43758.5453;
+  return (raw - Math.floor(raw)) * 2 * scale - scale;
+}
+
+function morphPathStepsWithJitter(steps: PathStep[], amount: number): PathStep[] {
+  let coordIndex = 0;
+  return steps.map(({ cmd, nums }) => {
+    if (cmd === 'Z' || nums.length === 0) { return { cmd, nums }; }
+    const morphed = [...nums];
+
+    if (cmd === 'H' || cmd === 'V') {
+      morphed[0] = (morphed[0] ?? 0) + seededJitterOffset(coordIndex++, amount);
+    } else if (cmd === 'A') {
+      morphed[5] = (morphed[5] ?? 0) + seededJitterOffset(coordIndex++, amount);
+      morphed[6] = (morphed[6] ?? 0) + seededJitterOffset(coordIndex++, amount);
+    } else {
+      for (let i = 0; i < morphed.length - 1; i += 2) {
+        morphed[i] = (morphed[i] ?? 0) + seededJitterOffset(coordIndex++, amount);
+        morphed[i + 1] = (morphed[i + 1] ?? 0) + seededJitterOffset(coordIndex++, amount);
+      }
+    }
+    return { cmd, nums: morphed };
+  });
+}
+
+function createPathMorphAnimation(documentRoot: XMLDocument, draft: AnimationDraft, target: Element): Element | null {
+  const d = target.getAttribute('d');
+  if (!d) { return null; }
+
+  const absSteps = absolutizePath(tokenizePathData(d));
+  if (absSteps.length === 0) { return null; }
+
+  const originalD = serializePathSteps(absSteps);
+  const amount = Math.max(0, draft.morphAmount);
+
+  let morphedSteps: PathStep[];
+  if (draft.morphTarget === 'jitter') {
+    morphedSteps = morphPathStepsWithJitter(absSteps, amount);
+  } else {
+    const bbox = computePathBoundingBox(getPathAnchorPoints(absSteps));
+    morphedSteps = morphPathStepsToCircle(absSteps, bbox, amount);
+  }
+
+  const morphedD = serializePathSteps(morphedSteps);
+
+  return createAnimationElement(documentRoot, 'animate', withSplineAttributes({
+    [WORKBENCH_PRESET_ATTRIBUTE]: draft.presetId,
+    ...getCommonAnimationAttributes(draft),
+    attributeName: 'd',
+    from: originalD,
+    to: morphedD,
+    keyTimes: '0;1',
+  }, draft.easing, 1));
+}
+
+function createAnimationNodes(documentRoot: XMLDocument, draft: AnimationDraft, target?: Element): Element[] | null {
   switch (draft.presetId) {
     case 'fade-in':
       return [createOpacityAnimation(documentRoot, draft, true)];
@@ -763,6 +1030,11 @@ function createAnimationNodes(documentRoot: XMLDocument, draft: AnimationDraft) 
       return [createOrbitAnimation(documentRoot, draft)];
     case 'color-shift':
       return [createColorShiftAnimation(documentRoot, draft)];
+    case 'path-morph': {
+      if (!target) { return null; }
+      const node = createPathMorphAnimation(documentRoot, draft, target);
+      return node ? [node] : null;
+    }
   }
 }
 
@@ -812,7 +1084,10 @@ function applyAnimationNodesToTarget(
   draft: AnimationDraft,
   options: ReturnType<typeof normalizeAnimationApplyOptions>,
 ) {
-  const animationNodes = createAnimationNodes(documentRoot, draft);
+  const animationNodes = createAnimationNodes(documentRoot, draft, target);
+  if (!animationNodes) {
+    return { applied: false, removedCount: 0 };
+  }
 
   switch (options.stackMode) {
     case 'append':
@@ -941,6 +1216,10 @@ function inferAnimationPresetId(animationNode: Element): AnimationPresetId | nul
     return 'color-shift';
   }
 
+  if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'd') {
+    return 'path-morph';
+  }
+
   if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'opacity') {
     const values = parseAnimationValueList(animationNode).map((value) => Number(value));
     if (values.length > 3) {
@@ -1014,6 +1293,10 @@ function inferAnimationDraftFromNode(animationNode: Element): AnimationDraft | n
     });
   }
 
+  if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'd') {
+    return createAnimationDraft('path-morph', baseDraft);
+  }
+
   if (nodeName === 'animate' && animationNode.getAttribute('attributeName') === 'opacity') {
     const values = parseAnimationValueList(animationNode).map((value) => Number(value));
     if (values.length > 3) {
@@ -1078,6 +1361,8 @@ export function createAnimationDraft(presetId: AnimationPresetId, current?: Part
     colorFrom: current?.colorFrom ?? defaults.colorFrom,
     colorMid: current?.colorMid ?? defaults.colorMid,
     colorTo: current?.colorTo ?? defaults.colorTo,
+    morphTarget: current?.morphTarget ?? defaults.morphTarget,
+    morphAmount: current?.morphAmount ?? defaults.morphAmount,
     presetId,
   };
 }
@@ -1102,6 +1387,10 @@ export function describeAnimationDraft(draft: AnimationDraft) {
       return `Orbit on a ${clampPositive(draft.orbitRadiusX, 20)} by ${clampPositive(draft.orbitRadiusY, 12)} path over ${formatSeconds(draft.durationSeconds)}.`;
     case 'color-shift':
       return `Shift fill from ${normalizeColor(draft.colorFrom, '#ff8a3d')} through ${normalizeColor(draft.colorMid, '#ffd166')} to ${normalizeColor(draft.colorTo, '#1f7a8c')}.`;
+    case 'path-morph':
+      return draft.morphTarget === 'jitter'
+        ? `Jitter each path point by up to ${Math.max(0, draft.morphAmount)} units over ${formatSeconds(draft.durationSeconds)}.`
+        : `Morph path outline ${Math.min(100, Math.max(0, draft.morphAmount))}% toward a circle over ${formatSeconds(draft.durationSeconds)}.`;
   }
 }
 
