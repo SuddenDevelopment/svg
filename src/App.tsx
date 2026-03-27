@@ -2186,7 +2186,9 @@ function App() {
       setAnimationStackDropPosition(null);
 
       if (nextSummary) {
-        const inferredDraft = inferAnimationDraftForPath(result.source, activeAnimationTargetPath, nextActiveIndex);
+        const inferredDraft = nextActiveIndex !== null
+          ? inferAnimationDraftForPath(result.source, activeAnimationTargetPath, nextActiveIndex)
+          : null;
         if (inferredDraft) {
           setAnimationDraft(inferredDraft);
         }
@@ -4035,7 +4037,6 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Client-only SVG toolchain</p>
           <h1>SVG Workbench</h1>
         </div>
         <div className="topbar-actions">
