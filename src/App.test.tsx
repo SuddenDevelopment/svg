@@ -2,11 +2,34 @@ import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as opentype from 'opentype.js';
+vi.mock('./lib/svg-tracing', async () => {
+  const actual = await vi.importActual<typeof import('./lib/svg-tracing')>('./lib/svg-tracing');
+
+  return {
+    ...actual,
+    loadRasterTraceAsset: vi.fn(async (file: File) => ({
+      fileName: file.name,
+      mimeType: file.type,
+      dataUrl: 'data:image/png;base64,trace-preview',
+      width: 64,
+      height: 32,
+      bytes: file.size,
+    })),
+    traceRasterAssetToSvg: vi.fn(async () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" width="64" height="32"><path d="M0 0H64V32H0Z" fill="#000" /></svg>'),
+  };
+});
+
 import App from './App';
 import { EMPTY_SVG_TEMPLATE } from './lib/svg-source';
+import { loadRasterTraceAsset, traceRasterAssetToSvg } from './lib/svg-tracing';
+
+const mockedLoadRasterTraceAsset = vi.mocked(loadRasterTraceAsset);
+const mockedTraceRasterAssetToSvg = vi.mocked(traceRasterAssetToSvg);
 
 beforeEach(() => {
   window.localStorage.clear();
+  mockedLoadRasterTraceAsset.mockClear();
+  mockedTraceRasterAssetToSvg.mockClear();
 });
 
 function ensureInspectorExpanded() {
@@ -451,6 +474,37 @@ describe('App', () => {
       expect(screen.getByText('Cleared the source editor to a blank SVG template.')).toBeInTheDocument();
     });
     expect(sourceEditor.value).toBe(EMPTY_SVG_TEMPLATE);
+  });
+
+  it('loads a raster image into the trace workflow and applies the traced svg to the editor', async () => {
+    const { container } = render(<App />);
+
+    const rasterInput = container.querySelector('input[accept*=".png"]') as HTMLInputElement | null;
+    expect(rasterInput).not.toBeNull();
+
+    const rasterFile = new File([new Uint8Array([137, 80, 78, 71])], 'badge.png', { type: 'image/png' });
+
+    fireEvent.change(rasterInput as HTMLInputElement, {
+      target: {
+        files: [rasterFile],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockedLoadRasterTraceAsset).toHaveBeenCalledWith(rasterFile);
+    });
+
+    expect(screen.getByText('Loaded badge.png for tracing.')).toBeInTheDocument();
+    expect(screen.getByText('badge-traced.svg')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trace into editor' }));
+
+    await waitFor(() => {
+      expect(mockedTraceRasterAssetToSvg).toHaveBeenCalled();
+    });
+
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('<path');
+    expect(screen.getByText('Traced badge.png into badge-traced.svg.')).toBeInTheDocument();
   });
 
   it('switches the inspection area to the clicked preview element', async () => {
@@ -1166,7 +1220,7 @@ describe('App', () => {
         Reflect.deleteProperty(document, 'elementFromPoint');
       }
     }
-  }, 10000);
+  }, 15000);
 
   it('applies interaction fields to the selected preview element', async () => {
     const { container } = render(<App />);

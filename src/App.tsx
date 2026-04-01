@@ -54,6 +54,20 @@ import { parseUploadedFontFile } from './lib/svg-fonts';
 import type { FontMapping, TextConversionOptions, UploadedFontAsset } from './lib/svg-fonts';
 import { clearSvgSource, optimizeSvgSource, prettifySvgSource } from './lib/svg-source';
 import {
+  buildTracedSvgFileName,
+  createRasterTraceSettings,
+  isSupportedRasterFile,
+  loadRasterTraceAsset,
+  rasterTraceAccept,
+  rasterTraceFormatLabel,
+  rasterTracePresets,
+  traceRasterAssetToSvg,
+  type RasterTraceAsset,
+  type RasterTraceMode,
+  type RasterTracePresetId,
+  type RasterTraceSettings,
+} from './lib/svg-tracing';
+import {
   applySafeRepairs,
   bakeContainerTransforms,
   bakeDirectTransforms,
@@ -107,6 +121,18 @@ type SourceSelection = {
   start: number;
   end: number;
 };
+
+function formatByteCount(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 type SelectionAppearancePresetId = 'studio' | 'signal' | 'blueprint';
 type SelectionAppearanceStateId = 'selected' | 'hovered' | 'changed' | 'targeted';
@@ -580,6 +606,7 @@ function syncFitContainers(root: ParentNode | null) {
 
 function App() {
   const inputId = useId();
+  const rasterInputId = useId();
   const fontInputId = useId();
   const sourceId = useId();
   const resourcesDialogTitleId = useId();
@@ -589,6 +616,7 @@ function App() {
   const previewTabsId = useId();
   const exportPresetTabsId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const rasterInputRef = useRef<HTMLInputElement | null>(null);
   const fontInputRef = useRef<HTMLInputElement | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const inspectorPanelRef = useRef<HTMLElement | null>(null);
@@ -644,6 +672,10 @@ function App() {
   const [repairMessage, setRepairMessage] = useState<string | null>(null);
   const [sourceActionMessage, setSourceActionMessage] = useState<string | null>(null);
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>({ start: 0, end: 0 });
+  const [rasterTraceAsset, setRasterTraceAsset] = useState<RasterTraceAsset | null>(null);
+  const [rasterTraceSettings, setRasterTraceSettings] = useState<RasterTraceSettings>(() => createRasterTraceSettings());
+  const [rasterTraceMessage, setRasterTraceMessage] = useState<string | null>(null);
+  const [isTracingRaster, setIsTracingRaster] = useState(false);
   const [exportReport, setExportReport] = useState<ExportReport | null>(null);
   const [selectedExportPreset, setSelectedExportPreset] = useState<ExportVariant>('safe');
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFontAsset[]>([]);
@@ -907,12 +939,17 @@ function App() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const nextSource = typeof reader.result === 'string' ? reader.result : '';
-      loadSvgSource(nextSource, file.name);
-    };
-    reader.readAsText(file);
+    void handlePickedFile(file);
+    event.target.value = '';
+  }
+
+  function handleRasterFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    void loadRasterAssetIntoTracePanel(file);
     event.target.value = '';
   }
 
@@ -925,12 +962,7 @@ function App() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const nextSource = typeof reader.result === 'string' ? reader.result : '';
-      loadSvgSource(nextSource, file.name);
-    };
-    reader.readAsText(file);
+    void handlePickedFile(file);
   }
 
   const topTags = Object.entries(analysis?.tagCounts ?? {})
@@ -981,6 +1013,7 @@ function App() {
   const referenceCleanupCount = analysis?.opportunities.referenceCleanupCount ?? 0;
   const isPreviewInteractive = previewTab === 'preview' && !parseError && Boolean(analysis?.previewMarkup);
   const sourceMetrics = getSourceMetrics(source, sourceSelection);
+  const activeRasterTracePreset = rasterTracePresets.find((preset) => preset.id === rasterTraceSettings.presetId) ?? rasterTracePresets[0];
   const exportPreflight = (() => {
     try {
       const authoringCleanup = cleanupAuthoringMetadata(source);
@@ -1114,6 +1147,92 @@ function App() {
     setInteractionMessage(null);
     setPreviewTimelineSeconds(0);
     setIsPreviewTimelinePlaying(true);
+  }
+
+  function updateRasterTraceSetting<Key extends keyof RasterTraceSettings>(field: Key, value: RasterTraceSettings[Key]) {
+    setRasterTraceSettings((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setRasterTraceMessage(null);
+  }
+
+  function applyRasterTracePreset(presetId: RasterTracePresetId) {
+    setRasterTraceSettings(createRasterTraceSettings(presetId));
+    setRasterTraceMessage(`Loaded ${rasterTracePresets.find((preset) => preset.id === presetId)?.label.toLowerCase() ?? 'trace'} settings.`);
+  }
+
+  function resetRasterTraceSettings() {
+    setRasterTraceSettings(createRasterTraceSettings(rasterTraceSettings.presetId));
+    setRasterTraceMessage(`Reset ${activeRasterTracePreset.label.toLowerCase()} settings.`);
+  }
+
+  function clearRasterTraceAsset() {
+    setRasterTraceAsset(null);
+    setRasterTraceMessage('Cleared the current raster trace source.');
+  }
+
+  function isSvgFile(file: File) {
+    return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+  }
+
+  async function loadRasterAssetIntoTracePanel(file: File) {
+    try {
+      const asset = await loadRasterTraceAsset(file);
+      setRasterTraceAsset(asset);
+      setActiveSection('file');
+      setPreviewTab('preview');
+      setRasterTraceMessage(`Loaded ${file.name} for tracing.`);
+      setSourceActionMessage(null);
+    } catch (error) {
+      setRasterTraceMessage(error instanceof Error ? error.message : 'Unable to load the raster image for tracing.');
+    }
+  }
+
+  function loadSvgFileIntoEditor(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const nextSource = typeof reader.result === 'string' ? reader.result : '';
+      loadSvgSource(nextSource, file.name);
+    };
+    reader.readAsText(file);
+  }
+
+  async function handlePickedFile(file: File) {
+    if (isSupportedRasterFile(file)) {
+      await loadRasterAssetIntoTracePanel(file);
+      return;
+    }
+
+    if (isSvgFile(file)) {
+      loadSvgFileIntoEditor(file);
+      return;
+    }
+
+    setSourceActionMessage(`Unsupported file type. Load an SVG, or use ${rasterTraceFormatLabel} for tracing.`);
+  }
+
+  async function traceRasterIntoEditor() {
+    if (!rasterTraceAsset) {
+      setRasterTraceMessage('Choose a raster file before tracing.');
+      return;
+    }
+
+    setIsTracingRaster(true);
+    setRasterTraceMessage(null);
+
+    try {
+      const tracedSource = await traceRasterAssetToSvg(rasterTraceAsset, rasterTraceSettings);
+      const tracedFileName = buildTracedSvgFileName(rasterTraceAsset.fileName);
+      loadSvgSource(tracedSource, tracedFileName);
+      setActiveSection('file');
+      setSourceActionMessage(`Traced ${rasterTraceAsset.fileName} into ${tracedFileName}.`);
+      setRasterTraceMessage(`Applied the ${activeRasterTracePreset.label.toLowerCase()} trace preset to ${rasterTraceAsset.fileName}.`);
+    } catch (error) {
+      setRasterTraceMessage(error instanceof Error ? error.message : 'Unable to trace the current raster image.');
+    } finally {
+      setIsTracingRaster(false);
+    }
   }
 
   function resetPreviewViewport() {
@@ -3436,6 +3555,163 @@ function App() {
           <p>{statusSummary}</p>
         </section>
 
+        <section className="status-card trace-card section-card">
+          <p className="status-label">Raster trace</p>
+          <strong>{rasterTraceAsset ? rasterTraceAsset.fileName : `Load ${rasterTraceFormatLabel}`}</strong>
+          <p>Trace raster art entirely in the browser, then load the generated SVG into the editor and preview.</p>
+          <div className="font-actions">
+            <button className="ghost-button repair-button" type="button" onClick={() => rasterInputRef.current?.click()}>
+              Choose raster
+            </button>
+            <button className="ghost-button repair-button" type="button" onClick={clearRasterTraceAsset} disabled={!rasterTraceAsset}>
+              Clear raster
+            </button>
+          </div>
+          <div className="trace-meta-grid">
+            <div className="source-feedback-card compact-source-metrics">
+              <span className="status-label">Output</span>
+              <strong>{rasterTraceAsset ? buildTracedSvgFileName(rasterTraceAsset.fileName) : 'No trace queued'}</strong>
+              <p className="source-feedback-copy">The trace result replaces the current SVG source in the editor.</p>
+            </div>
+            <div className="source-feedback-card compact-source-metrics">
+              <span className="status-label">Formats</span>
+              <strong>{rasterTraceFormatLabel}</strong>
+              <p className="source-feedback-copy">Drag onto the preview or open a raster file directly.</p>
+            </div>
+            <div className="source-feedback-card compact-source-metrics">
+              <span className="status-label">Image</span>
+              <strong>{rasterTraceAsset ? `${rasterTraceAsset.width} × ${rasterTraceAsset.height}` : 'No raster loaded'}</strong>
+              <p className="source-feedback-copy">{rasterTraceAsset ? `${formatByteCount(rasterTraceAsset.bytes)} • ${rasterTraceAsset.mimeType || 'unknown type'}` : 'Load a raster file to inspect its size before tracing.'}</p>
+            </div>
+          </div>
+          <div className="trace-preview-shell">
+            {rasterTraceAsset ? (
+              <img className="trace-preview-image" src={rasterTraceAsset.dataUrl} alt={`Raster preview of ${rasterTraceAsset.fileName}`} />
+            ) : (
+              <div className="empty-state trace-empty-state">
+                <strong>Raster input</strong>
+                <p>Queue a PNG, JPG, WebP, GIF, BMP, AVIF, or TIFF image to tune the trace before loading the SVG result into the editor.</p>
+              </div>
+            )}
+          </div>
+          <div className="trace-field-grid">
+            <label className="animation-field animation-field-split">
+              <span>Trace preset</span>
+              <select value={rasterTraceSettings.presetId} onChange={(event) => applyRasterTracePreset(event.target.value as RasterTracePresetId)}>
+                {rasterTracePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="animation-field animation-field-split">
+              <span>Mode</span>
+              <select value={rasterTraceSettings.mode} onChange={(event) => updateRasterTraceSetting('mode', event.target.value as RasterTraceMode)}>
+                <option value="color">Color</option>
+                <option value="grayscale">Grayscale</option>
+                <option value="monochrome">Monochrome</option>
+              </select>
+            </label>
+            <label className="animation-field">
+              <span>Colors</span>
+              <div className="trace-range-row">
+                <input
+                  aria-label="Raster trace color count"
+                  type="range"
+                  min="2"
+                  max="48"
+                  step="1"
+                  value={rasterTraceSettings.mode === 'monochrome' ? 2 : rasterTraceSettings.numberOfColors}
+                  onChange={(event) => updateRasterTraceSetting('numberOfColors', Number(event.target.value))}
+                  disabled={rasterTraceSettings.mode === 'monochrome'}
+                />
+                <output>{rasterTraceSettings.mode === 'monochrome' ? 2 : rasterTraceSettings.numberOfColors}</output>
+              </div>
+            </label>
+            <label className="animation-field">
+              <span>Threshold</span>
+              <div className="trace-range-row">
+                <input
+                  aria-label="Raster trace threshold"
+                  type="range"
+                  min="0"
+                  max="255"
+                  step="1"
+                  value={rasterTraceSettings.threshold}
+                  onChange={(event) => updateRasterTraceSetting('threshold', Number(event.target.value))}
+                  disabled={rasterTraceSettings.mode !== 'monochrome'}
+                />
+                <output>{rasterTraceSettings.threshold}</output>
+              </div>
+            </label>
+            <label className="animation-field">
+              <span>Detail</span>
+              <div className="trace-range-row">
+                <input
+                  aria-label="Raster trace detail"
+                  type="range"
+                  min="1"
+                  max="5"
+                  step="1"
+                  value={rasterTraceSettings.detail}
+                  onChange={(event) => updateRasterTraceSetting('detail', Number(event.target.value))}
+                />
+                <output>{rasterTraceSettings.detail}</output>
+              </div>
+            </label>
+            <label className="animation-field">
+              <span>Blur</span>
+              <div className="trace-range-row">
+                <input
+                  aria-label="Raster trace blur"
+                  type="range"
+                  min="0"
+                  max="5"
+                  step="1"
+                  value={rasterTraceSettings.blurRadius}
+                  onChange={(event) => updateRasterTraceSetting('blurRadius', Number(event.target.value))}
+                />
+                <output>{rasterTraceSettings.blurRadius}</output>
+              </div>
+            </label>
+            <label className="animation-field">
+              <span>Noise filter</span>
+              <div className="trace-range-row">
+                <input
+                  aria-label="Raster trace noise filter"
+                  type="range"
+                  min="0"
+                  max="24"
+                  step="1"
+                  value={rasterTraceSettings.noiseFilter}
+                  onChange={(event) => updateRasterTraceSetting('noiseFilter', Number(event.target.value))}
+                />
+                <output>{rasterTraceSettings.noiseFilter}</output>
+              </div>
+            </label>
+            <label className="selection-appearance-toggle trace-toggle">
+              <input
+                type="checkbox"
+                aria-label="Enhance raster trace corners"
+                checked={rasterTraceSettings.enhanceCorners}
+                onChange={(event) => updateRasterTraceSetting('enhanceCorners', event.target.checked)}
+              />
+              Enhance corners
+            </label>
+          </div>
+          <p className="repair-note trace-preset-copy">{activeRasterTracePreset.description}</p>
+          <div className="animation-target-actions" role="toolbar" aria-label="Raster trace actions">
+            <button className="primary-button" type="button" onClick={() => void traceRasterIntoEditor()} disabled={!rasterTraceAsset || isTracingRaster}>
+              {isTracingRaster ? 'Tracing…' : 'Trace into editor'}
+            </button>
+            <button className="ghost-button" type="button" onClick={resetRasterTraceSettings}>
+              Reset settings
+            </button>
+          </div>
+          {rasterTraceMessage ? <p className="source-action-feedback">{rasterTraceMessage}</p> : null}
+        </section>
+
         <section className="editor-card section-card">
           <label className="editor-label" htmlFor={sourceId}>SVG source</label>
           <div className="source-action-bar" role="toolbar" aria-label="Source actions">
@@ -4398,6 +4674,14 @@ function App() {
             hidden
           />
           <input
+            ref={rasterInputRef}
+            id={rasterInputId}
+            type="file"
+            accept={rasterTraceAccept}
+            onChange={handleRasterFileChange}
+            hidden
+          />
+          <input
             ref={fontInputRef}
             id={fontInputId}
             type="file"
@@ -4408,6 +4692,9 @@ function App() {
           />
           <button className="ghost-button" type="button" onClick={() => fileInputRef.current?.click()}>
             Open SVG
+          </button>
+          <button className="ghost-button" type="button" onClick={() => rasterInputRef.current?.click()}>
+            Trace raster
           </button>
           <button className="primary-button" type="button" onClick={() => {
             loadSvgSource(sampleSvg, 'sample.svg');
@@ -4708,7 +4995,7 @@ function App() {
               </div>
               <p>
                 {activeSection === 'file'
-                  ? 'Edit the source directly or drop in a new SVG. Preview sanitization strips executable nodes before rendering.'
+                  ? 'Edit the source directly, drop in a new SVG, or queue raster art for browser-side tracing. Preview sanitization strips executable nodes before rendering.'
                   : activeSection === 'repair'
                     ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
                     : 'Choose an export preset on the left and use the selection inspector for style, animation, and interaction authoring.'}
