@@ -494,8 +494,9 @@ describe('App', () => {
       expect(mockedLoadRasterTraceAsset).toHaveBeenCalledWith(rasterFile);
     });
 
-    expect(screen.getByText('Loaded badge.png for tracing.')).toBeInTheDocument();
-    expect(screen.getByText('badge-traced.svg')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/badge-traced\.svg/i)).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Trace into editor' }));
 
@@ -505,6 +506,33 @@ describe('App', () => {
 
     expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('<path');
     expect(screen.getByText('Traced badge.png into badge-traced.svg.')).toBeInTheDocument();
+  });
+
+  it('loads jpeg sources with a posterized photo preset recommendation', async () => {
+    const { container } = render(<App />);
+
+    const rasterInput = container.querySelector('input[accept*=".png"]') as HTMLInputElement | null;
+    expect(rasterInput).not.toBeNull();
+
+    const rasterFile = new File([new Uint8Array([255, 216, 255, 224])], 'photo.jpg', { type: 'image/jpeg' });
+
+    fireEvent.change(rasterInput as HTMLInputElement, {
+      target: {
+        files: [rasterFile],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockedLoadRasterTraceAsset).toHaveBeenCalledWith(rasterFile);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Trace preset' })).toHaveValue('posterized-photo');
+    });
+    expect(screen.getByRole('checkbox', { name: 'Edge-preserving photo cleanup' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Posterize raster trace colors' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Remove traced white background' })).not.toBeChecked();
+    expect(screen.getByText(/JPEG sources usually trace cleaner with posterization enabled/i)).toBeInTheDocument();
   });
 
   it('switches the inspection area to the clicked preview element', async () => {
@@ -770,6 +798,160 @@ describe('App', () => {
         Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
       } else {
         Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('can collapse selected element details to reduce inspector scrolling', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><path id="long-path" d="M0 0 C 20 40, 40 20, 60 60 S 100 100, 140 40" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewPath = container.querySelector('.svg-preview-frame svg path');
+    expect(previewPath).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewPath),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 51, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 51, clientX: 24, clientY: 18 });
+
+      ensureInspectorExpanded();
+
+      await waitFor(() => {
+        expect(screen.getByText('long-path')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse details' }));
+
+      expect(screen.getByRole('button', { name: 'Expand details' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByText('Details are collapsed. Expand this card to inspect attributes and attached animations.')).toBeInTheDocument();
+      expect(screen.queryByText('Animations on this element')).not.toBeInTheDocument();
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('toggles selected element visibility from the style tool', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="panel" width="12" height="12" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 52, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 52, clientX: 24, clientY: 18 });
+
+      openSelectionTool('Style');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Hide selected' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Hidden 1 selected element/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+      expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('display="none"');
+
+      openSelectionTool('Style');
+      fireEvent.click(screen.getByRole('button', { name: 'Unhide selected' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Unhidden 1 selected element/i)).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+      expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).not.toContain('display="none"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('cycles overlapping preview hits on repeated clicks at the same point', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="rear" x="0" y="0" width="20" height="20" /><rect id="front" x="0" y="0" width="20" height="20" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRects = container.querySelectorAll('.svg-preview-frame svg rect');
+    const rearRect = previewRects[0] ?? null;
+    const frontRect = previewRects[1] ?? null;
+    expect(rearRect).not.toBeNull();
+    expect(frontRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+    const originalElementsFromPoint = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => frontRect),
+      });
+      Object.defineProperty(document, 'elementsFromPoint', {
+        configurable: true,
+        value: vi.fn(() => [frontRect, rearRect]),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 53, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 53, clientX: 24, clientY: 18 });
+
+      await waitFor(() => {
+        expect(container.querySelector('.svg-preview-frame [data-svg-node-selected="true"]')?.getAttribute('id')).toBe('front');
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 54, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 54, clientX: 24, clientY: 18 });
+
+      await waitFor(() => {
+        expect(container.querySelector('.svg-preview-frame [data-svg-node-selected="true"]')?.getAttribute('id')).toBe('rear');
+      });
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+
+      if (originalElementsFromPoint) {
+        Object.defineProperty(document, 'elementsFromPoint', originalElementsFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementsFromPoint');
       }
     }
   });

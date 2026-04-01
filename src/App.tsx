@@ -56,6 +56,7 @@ import { clearSvgSource, optimizeSvgSource, prettifySvgSource } from './lib/svg-
 import {
   buildTracedSvgFileName,
   createRasterTraceSettings,
+  isJpegRasterAsset,
   isSupportedRasterFile,
   loadRasterTraceAsset,
   rasterTraceAccept,
@@ -92,7 +93,9 @@ import {
   createStyleDraft,
   inferStyleDraftForPath,
   isPaintKeyword,
+  isStyleDirectlyHidden,
   paintValueToColorInput,
+  setHiddenStateForPaths,
 } from './lib/svg-style';
 import type { StyleDraft } from './lib/svg-style';
 
@@ -627,6 +630,12 @@ function App() {
     lastY: number;
     distance: number;
   } | null>(null);
+  const previewHitCycleRef = useRef<{
+    clientX: number;
+    clientY: number;
+    nodeIds: string[];
+    nextIndex: number;
+  } | null>(null);
   const suppressPreviewClickRef = useRef(false);
   const initialSelectionAppearanceRef = useRef<ReturnType<typeof readStoredSelectionAppearance> | null>(null);
 
@@ -685,6 +694,7 @@ function App() {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('file');
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
   const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
+  const [isSelectedElementPanelCollapsed, setIsSelectedElementPanelCollapsed] = useState(false);
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('collapsed');
   const deferredSource = useDeferredValue(source);
@@ -767,6 +777,10 @@ function App() {
     setTargetAnimationOverrides((current) => Object.fromEntries(Object.entries(current).filter(([path]) => validPaths.has(path))));
     setActiveAnimationTargetPath((current) => (current && validPaths.has(current) ? current : null));
   }, [analysis]);
+
+  useEffect(() => {
+    previewHitCycleRef.current = null;
+  }, [analysis?.previewMarkup, previewTab]);
 
   useEffect(() => {
     setPreviewTimelineSeconds(0);
@@ -983,6 +997,11 @@ function App() {
       .filter((path): path is string => Boolean(path))))
     : [];
   const animationTargetPaths = selectionFacet === 'animate' ? authorableSelectionPaths : [];
+  const selectedAuthorableNodes = authorableSelectionPaths
+    .map((path) => nodesByPath?.get(path))
+    .filter((node): node is Analysis['nodesById'][string] => Boolean(node));
+  const areAllSelectedElementsHidden = selectedAuthorableNodes.length > 0
+    && selectedAuthorableNodes.every((node) => isStyleDirectlyHidden(node.attributes));
   const animationTargetNodes = animationTargetPaths
     .map((path) => nodesByPath?.get(path))
     .filter((node): node is Analysis['nodesById'][string] => Boolean(node));
@@ -1014,6 +1033,9 @@ function App() {
   const isPreviewInteractive = previewTab === 'preview' && !parseError && Boolean(analysis?.previewMarkup);
   const sourceMetrics = getSourceMetrics(source, sourceSelection);
   const activeRasterTracePreset = rasterTracePresets.find((preset) => preset.id === rasterTraceSettings.presetId) ?? rasterTracePresets[0];
+  const shouldShowPhotoCleanupControls = rasterTraceSettings.mode !== 'monochrome';
+  const shouldShowPosterizeControls = rasterTraceSettings.mode !== 'monochrome';
+  const rasterTraceAssetLooksLikeJpeg = rasterTraceAsset ? isJpegRasterAsset(rasterTraceAsset) : false;
   const exportPreflight = (() => {
     try {
       const authoringCleanup = cleanupAuthoringMetadata(source);
@@ -1179,10 +1201,16 @@ function App() {
   async function loadRasterAssetIntoTracePanel(file: File) {
     try {
       const asset = await loadRasterTraceAsset(file);
+      const recommendedPresetId = isJpegRasterAsset(asset) ? 'posterized-photo' : null;
       setRasterTraceAsset(asset);
+      if (recommendedPresetId) {
+        setRasterTraceSettings(createRasterTraceSettings(recommendedPresetId));
+      }
       setActiveSection('file');
       setPreviewTab('preview');
-      setRasterTraceMessage(`Loaded ${file.name} for tracing.`);
+      setRasterTraceMessage(recommendedPresetId
+        ? `Loaded ${file.name} for tracing with the posterized photo preset for cleaner JPG edges.`
+        : `Loaded ${file.name} for tracing.`);
       setSourceActionMessage(null);
     } catch (error) {
       setRasterTraceMessage(error instanceof Error ? error.message : 'Unable to load the raster image for tracing.');
@@ -2080,16 +2108,66 @@ function App() {
     focusExportPresetTab(nextPreset);
   }
 
-  function resolvePreviewNodeId(target: EventTarget | null, clientX: number, clientY: number) {
+  function resolvePreviewNodeId(target: EventTarget | null, clientX: number, clientY: number, allowCycle: boolean) {
+    const previewFrame = previewFrameRef.current;
     const targetElement = target instanceof Element ? target : null;
     const directNodeId = targetElement?.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id');
-    if (directNodeId) {
-      return directNodeId;
+    const previewDocument = previewFrame?.ownerDocument;
+
+    const stackedNodeIds = typeof previewDocument?.elementsFromPoint === 'function'
+      ? Array.from(new Set(previewDocument.elementsFromPoint(clientX, clientY)
+        .map((element) => element.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id'))
+        .filter((nodeId): nodeId is string => Boolean(nodeId))))
+      : [];
+
+    if (directNodeId && !stackedNodeIds.includes(directNodeId)) {
+      stackedNodeIds.unshift(directNodeId);
     }
 
-    const previewDocument = previewFrameRef.current?.ownerDocument;
-    const fallbackTarget = previewDocument?.elementFromPoint(clientX, clientY);
-    return fallbackTarget?.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id') ?? null;
+    if (stackedNodeIds.length === 0) {
+      const fallbackTarget = previewDocument?.elementFromPoint(clientX, clientY);
+      const fallbackNodeId = fallbackTarget?.closest('[data-svg-node-id]')?.getAttribute('data-svg-node-id') ?? null;
+      return fallbackNodeId;
+    }
+
+    const filteredNodeIds = stackedNodeIds.length > 1 && analysis
+      ? stackedNodeIds.filter((nodeId) => nodeId !== analysis.rootNodeId)
+      : stackedNodeIds;
+    const candidateNodeIds = filteredNodeIds.length > 0 ? filteredNodeIds : stackedNodeIds;
+
+    if (candidateNodeIds.length <= 1 || !allowCycle) {
+      previewHitCycleRef.current = candidateNodeIds.length === 1
+        ? {
+            clientX,
+            clientY,
+            nodeIds: candidateNodeIds,
+            nextIndex: 0,
+          }
+        : null;
+      return candidateNodeIds[0] ?? null;
+    }
+
+    const previousHitCycle = previewHitCycleRef.current;
+    const canAdvanceCycle = previousHitCycle
+      && Math.abs(previousHitCycle.clientX - clientX) <= 6
+      && Math.abs(previousHitCycle.clientY - clientY) <= 6
+      && previousHitCycle.nodeIds.length === candidateNodeIds.length
+      && previousHitCycle.nodeIds.every((nodeId, index) => nodeId === candidateNodeIds[index]);
+    const currentSelectedIndex = selectedNodeId ? candidateNodeIds.indexOf(selectedNodeId) : -1;
+    const nextIndex = canAdvanceCycle
+      ? currentSelectedIndex >= 0
+        ? (currentSelectedIndex + 1) % candidateNodeIds.length
+        : previousHitCycle.nextIndex % candidateNodeIds.length
+      : 0;
+
+    previewHitCycleRef.current = {
+      clientX,
+      clientY,
+      nodeIds: candidateNodeIds,
+      nextIndex: (nextIndex + 1) % candidateNodeIds.length,
+    };
+
+    return candidateNodeIds[nextIndex] ?? null;
   }
 
   function handlePreviewPointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -2154,9 +2232,10 @@ function App() {
       return;
     }
 
-    const nodeId = resolvePreviewNodeId(event.target, event.clientX, event.clientY);
+    const appendSelection = event.shiftKey || event.ctrlKey || event.metaKey;
+    const nodeId = resolvePreviewNodeId(event.target, event.clientX, event.clientY, !appendSelection);
     if (nodeId) {
-      handlePreviewNodeSelection(nodeId, event.shiftKey || event.ctrlKey || event.metaKey);
+      handlePreviewNodeSelection(nodeId, appendSelection);
     }
   }
 
@@ -2575,6 +2654,32 @@ function App() {
       );
     } catch (error) {
       setStyleMessage(error instanceof Error ? error.message : 'Unable to update style attributes.');
+    }
+  }
+
+  function toggleSelectedElementVisibility() {
+    if (authorableSelectionPaths.length === 0) {
+      setStyleMessage('Select at least one preview element to hide or unhide it.');
+      return;
+    }
+
+    const shouldHide = !areAllSelectedElementsHidden;
+
+    try {
+      const result = setHiddenStateForPaths(source, authorableSelectionPaths, shouldHide);
+      commitRepairSource(
+        result.source,
+        result.updatedCount > 0
+          ? `${shouldHide ? 'Hid' : 'Unhid'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`
+          : `The selected elements were already ${shouldHide ? 'hidden' : 'visible'}.`,
+      );
+      setStyleMessage(
+        result.skippedPaths.length > 0
+          ? `${shouldHide ? 'Hid' : 'Unhid'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
+          : `${shouldHide ? 'Hidden' : 'Unhidden'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`,
+      );
+    } catch (error) {
+      setStyleMessage(error instanceof Error ? error.message : 'Unable to update selected element visibility.');
     }
   }
 
@@ -3372,6 +3477,14 @@ function App() {
 
           <div className="animation-target-actions" role="toolbar" aria-label="Style actions">
             <button
+              className="ghost-button"
+              type="button"
+              onClick={toggleSelectedElementVisibility}
+              disabled={authorableSelectionPaths.length === 0}
+            >
+              {areAllSelectedElementsHidden ? 'Unhide selected' : 'Hide selected'}
+            </button>
+            <button
               className="primary-button"
               type="button"
               onClick={applyStyleToSelection}
@@ -3597,7 +3710,7 @@ function App() {
           <div className="trace-field-grid">
             <label className="animation-field animation-field-split">
               <span>Trace preset</span>
-              <select value={rasterTraceSettings.presetId} onChange={(event) => applyRasterTracePreset(event.target.value as RasterTracePresetId)}>
+              <select aria-label="Trace preset" value={rasterTraceSettings.presetId} onChange={(event) => applyRasterTracePreset(event.target.value as RasterTracePresetId)}>
                 {rasterTracePresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.label}
@@ -3607,7 +3720,7 @@ function App() {
             </label>
             <label className="animation-field animation-field-split">
               <span>Mode</span>
-              <select value={rasterTraceSettings.mode} onChange={(event) => updateRasterTraceSetting('mode', event.target.value as RasterTraceMode)}>
+              <select aria-label="Raster trace mode" value={rasterTraceSettings.mode} onChange={(event) => updateRasterTraceSetting('mode', event.target.value as RasterTraceMode)}>
                 <option value="color">Color</option>
                 <option value="grayscale">Grayscale</option>
                 <option value="monochrome">Monochrome</option>
@@ -3644,6 +3757,73 @@ function App() {
                 />
                 <output>{rasterTraceSettings.threshold}</output>
               </div>
+            </label>
+            {shouldShowPhotoCleanupControls ? (
+              <label className="selection-appearance-toggle trace-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Edge-preserving photo cleanup"
+                  checked={rasterTraceSettings.photoCleanup}
+                  onChange={(event) => updateRasterTraceSetting('photoCleanup', event.target.checked)}
+                />
+                Edge-preserving photo cleanup
+              </label>
+            ) : null}
+            {shouldShowPhotoCleanupControls ? (
+              <label className="animation-field">
+                <span>Cleanup strength</span>
+                <div className="trace-range-row">
+                  <input
+                    aria-label="Raster trace cleanup strength"
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="1"
+                    value={rasterTraceSettings.photoCleanupStrength}
+                    onChange={(event) => updateRasterTraceSetting('photoCleanupStrength', Number(event.target.value))}
+                    disabled={!rasterTraceSettings.photoCleanup}
+                  />
+                  <output>{rasterTraceSettings.photoCleanupStrength}</output>
+                </div>
+              </label>
+            ) : null}
+            {shouldShowPosterizeControls ? (
+              <label className="selection-appearance-toggle trace-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Posterize raster trace colors"
+                  checked={rasterTraceSettings.posterize}
+                  onChange={(event) => updateRasterTraceSetting('posterize', event.target.checked)}
+                />
+                Posterize before tracing
+              </label>
+            ) : null}
+            {shouldShowPosterizeControls ? (
+              <label className="animation-field">
+                <span>Posterize levels</span>
+                <div className="trace-range-row">
+                  <input
+                    aria-label="Raster trace posterize levels"
+                    type="range"
+                    min="2"
+                    max="12"
+                    step="1"
+                    value={rasterTraceSettings.posterizeLevels}
+                    onChange={(event) => updateRasterTraceSetting('posterizeLevels', Number(event.target.value))}
+                    disabled={!rasterTraceSettings.posterize}
+                  />
+                  <output>{rasterTraceSettings.posterizeLevels}</output>
+                </div>
+              </label>
+            ) : null}
+            <label className="selection-appearance-toggle trace-toggle">
+              <input
+                type="checkbox"
+                aria-label="Remove traced white background"
+                checked={rasterTraceSettings.removeBackground}
+                onChange={(event) => updateRasterTraceSetting('removeBackground', event.target.checked)}
+              />
+              Remove traced white background
             </label>
             <label className="animation-field">
               <span>Detail</span>
@@ -3701,6 +3881,12 @@ function App() {
             </label>
           </div>
           <p className="repair-note trace-preset-copy">{activeRasterTracePreset.description}</p>
+          {rasterTraceAssetLooksLikeJpeg ? (
+            <p className="repair-note trace-preset-copy">JPEG sources usually trace cleaner with posterization enabled and fewer colors, because compression noise gets flattened before vectorization.</p>
+          ) : null}
+          {rasterTraceSettings.removeBackground ? (
+            <p className="repair-note trace-preset-copy">Background removal only strips large near-white traced shapes that cover nearly the full canvas, so light foreground fills stay intact.</p>
+          ) : null}
           <div className="animation-target-actions" role="toolbar" aria-label="Raster trace actions">
             <button className="primary-button" type="button" onClick={() => void traceRasterIntoEditor()} disabled={!rasterTraceAsset || isTracingRaster}>
               {isTracingRaster ? 'Tracing…' : 'Trace into editor'}
@@ -4330,7 +4516,17 @@ function App() {
         return (
           <div className="inspector-stack tabbed-stack">
             <section className="focus-card section-card inspector-card-fill">
-              <h3>Selected element</h3>
+              <div className="section-header-inline selected-element-header" data-fit-container>
+                <h3>Selected element</h3>
+                <button
+                  className="ghost-button selected-element-toggle"
+                  type="button"
+                  aria-expanded={!isSelectedElementPanelCollapsed}
+                  onClick={() => setIsSelectedElementPanelCollapsed((current) => !current)}
+                >
+                  {isSelectedElementPanelCollapsed ? 'Expand details' : 'Collapse details'}
+                </button>
+              </div>
               {selectedNode ? (
                 <div className="selection-card">
                   <p className="selection-tag">{selectedNode.name}</p>
@@ -4341,57 +4537,63 @@ function App() {
                   {animationTargetPaths.includes(selectedNode.path) ? (
                     <p className="selection-copy selection-note">Included in the current animation target set.</p>
                   ) : null}
-                  <div className="selection-animations-block">
-                    <p className="selection-subtitle">Animations on this element</p>
-                    <ul className="warning-list compact-note-list animation-summary-list">
-                      {selectedNodeAnimations.length > 0 ? (
-                        selectedNodeAnimations.map((animation, index) => (
-                          <li key={`${animation.nodeName}-${animation.label}-${index}`} data-fit-container>
-                            <button
-                              className="inline-list-button animation-summary-button"
-                              type="button"
-                              onClick={() => {
-                                setSelectionFacet('animate');
-                                loadAnimationIntoEditor(selectedNode.path, animation.index);
-                              }}
-                            >
-                              <span className={`risk-badge ${animation.isWorkbenchAuthored ? 'info' : 'warning'}`}>
-                                {animation.isWorkbenchAuthored ? 'workbench' : 'native'}
-                              </span>
-                              <span>
-                                <strong>{animation.label}</strong>
-                                <br />
-                                {animation.detail}
-                                {animation.duration ? ` • ${animation.duration}` : ''}
-                                {animation.begin ? ` • begins ${animation.begin}` : ''}
-                                {animation.repeatCount ? ` • repeats ${animation.repeatCount}` : ''}
-                              </span>
-                            </button>
+                  {!isSelectedElementPanelCollapsed ? (
+                    <>
+                      <div className="selection-animations-block">
+                        <p className="selection-subtitle">Animations on this element</p>
+                        <ul className="warning-list compact-note-list animation-summary-list">
+                          {selectedNodeAnimations.length > 0 ? (
+                            selectedNodeAnimations.map((animation, index) => (
+                              <li key={`${animation.nodeName}-${animation.label}-${index}`} data-fit-container>
+                                <button
+                                  className="inline-list-button animation-summary-button"
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectionFacet('animate');
+                                    loadAnimationIntoEditor(selectedNode.path, animation.index);
+                                  }}
+                                >
+                                  <span className={`risk-badge ${animation.isWorkbenchAuthored ? 'info' : 'warning'}`}>
+                                    {animation.isWorkbenchAuthored ? 'workbench' : 'native'}
+                                  </span>
+                                  <span>
+                                    <strong>{animation.label}</strong>
+                                    <br />
+                                    {animation.detail}
+                                    {animation.duration ? ` • ${animation.duration}` : ''}
+                                    {animation.begin ? ` • begins ${animation.begin}` : ''}
+                                    {animation.repeatCount ? ` • repeats ${animation.repeatCount}` : ''}
+                                  </span>
+                                </button>
+                              </li>
+                            ))
+                          ) : (
+                            <li data-fit-container>
+                              <span className="risk-badge info">clear</span>
+                              <span>No direct animation children are attached to this element.</span>
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                      <ul className="attribute-list">
+                        {Object.entries(selectedNode.attributes).length > 0 ? (
+                          Object.entries(selectedNode.attributes).slice(0, 10).map(([name, value]) => (
+                            <li key={name} data-fit-container>
+                              <span>{name}</span>
+                              <strong>{value}</strong>
+                            </li>
+                          ))
+                        ) : (
+                          <li data-fit-container>
+                            <span>No element attributes found.</span>
+                            <strong>0</strong>
                           </li>
-                        ))
-                      ) : (
-                        <li data-fit-container>
-                          <span className="risk-badge info">clear</span>
-                          <span>No direct animation children are attached to this element.</span>
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                  <ul className="attribute-list">
-                    {Object.entries(selectedNode.attributes).length > 0 ? (
-                      Object.entries(selectedNode.attributes).slice(0, 10).map(([name, value]) => (
-                        <li key={name} data-fit-container>
-                          <span>{name}</span>
-                          <strong>{value}</strong>
-                        </li>
-                      ))
-                    ) : (
-                      <li data-fit-container>
-                        <span>No element attributes found.</span>
-                        <strong>0</strong>
-                      </li>
-                    )}
-                  </ul>
+                        )}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="selection-copy selection-collapsed-note">Details are collapsed. Expand this card to inspect attributes and attached animations.</p>
+                  )}
                 </div>
               ) : (
                 <p className="selection-copy">Select an element in the preview to inspect it here.</p>

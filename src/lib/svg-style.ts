@@ -16,6 +16,12 @@ export type StyleMutationResult = {
   skippedPaths: string[];
 };
 
+export function isStyleDirectlyHidden(attributes: Partial<Record<string, string>> = {}) {
+  const display = attributes.display?.trim().toLowerCase() ?? '';
+  const visibility = attributes.visibility?.trim().toLowerCase() ?? '';
+  return display === 'none' || visibility === 'hidden' || visibility === 'collapse';
+}
+
 function parseSvgRoot(source: string) {
   const documentRoot = new DOMParser().parseFromString(source, 'image/svg+xml');
   const parserError = documentRoot.querySelector('parsererror');
@@ -130,6 +136,52 @@ export function applyStyleDraftToSource(
     changed = setOrRemoveAttribute(target, 'display', draft.display) || changed;
     changed = setOrRemoveAttribute(target, 'visibility', draft.visibility) || changed;
     changed = setOrRemoveAttribute(target, 'fill-rule', draft.fillRule) || changed;
+
+    if (changed) {
+      updatedCount += 1;
+    }
+  });
+
+  return {
+    source: new XMLSerializer().serializeToString(root),
+    updatedCount,
+    skippedPaths,
+  };
+}
+
+export function setHiddenStateForPaths(
+  source: string,
+  targetPaths: string[],
+  hidden: boolean,
+): StyleMutationResult {
+  const root = parseSvgRoot(source);
+  const uniquePaths = Array.from(new Set(targetPaths));
+  const skippedPaths: string[] = [];
+  let updatedCount = 0;
+
+  uniquePaths.forEach((path) => {
+    const target = resolveElementByPath(root, path);
+    if (!target) {
+      skippedPaths.push(path);
+      return;
+    }
+
+    let changed = false;
+
+    if (hidden) {
+      changed = setOrRemoveAttribute(target, 'display', 'none') || changed;
+    } else {
+      if ((target.getAttribute('display') ?? '').trim().toLowerCase() === 'none') {
+        target.removeAttribute('display');
+        changed = true;
+      }
+
+      const visibility = (target.getAttribute('visibility') ?? '').trim().toLowerCase();
+      if (visibility === 'hidden' || visibility === 'collapse') {
+        target.removeAttribute('visibility');
+        changed = true;
+      }
+    }
 
     if (changed) {
       updatedCount += 1;

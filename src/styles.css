@@ -1306,6 +1306,14 @@ textarea {
   margin-top: 12px;
 }
 
+.selected-element-header {
+  align-items: center;
+}
+
+.selected-element-toggle {
+  padding: 0.48rem 0.8rem;
+}
+
 .selection-tag {
   display: inline-flex;
   padding: 0.24rem 0.55rem;
@@ -1320,6 +1328,13 @@ textarea {
 
 .selection-copy {
   margin: 12px 0 0;
+}
+
+.selection-collapsed-note {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(247, 242, 234, 0.7);
+  border: 1px solid rgba(19, 38, 47, 0.08);
 }
 
 .selection-facet-tabs {
