@@ -2,7 +2,7 @@ import ImageTracer from 'imagetracerjs';
 import type { ImageTracerOptions, ImageTracerPaletteColor } from 'imagetracerjs';
 
 export type RasterTraceMode = 'color' | 'grayscale' | 'monochrome';
-export type RasterTracePresetId = 'illustration' | 'logo' | 'photo' | 'grayscale' | 'posterized-photo';
+export type RasterTracePresetId = 'illustration' | 'logo' | 'photo' | 'grayscale' | 'posterized-photo' | 'flat-logo';
 
 export type RasterTraceSettings = {
   presetId: RasterTracePresetId;
@@ -18,6 +18,11 @@ export type RasterTraceSettings = {
   posterize: boolean;
   posterizeLevels: number;
   removeBackground: boolean;
+  alphaCleanup: boolean;
+  alphaCleanupThreshold: number;
+  paletteTracing: boolean;
+  paletteSize: number;
+  removeInnerFragments: boolean;
 };
 
 export type RasterTraceAsset = {
@@ -27,6 +32,8 @@ export type RasterTraceAsset = {
   width: number;
   height: number;
   bytes: number;
+  hasTransparency: boolean;
+  isFlatArtwork: boolean;
 };
 
 const MONOCHROME_PALETTE: ImageTracerPaletteColor[] = [
@@ -72,6 +79,11 @@ export const rasterTracePresets: Array<{
     description: 'High-contrast monochrome tracing that keeps corners crisp and background fills easy to discard.',
   },
   {
+    id: 'flat-logo',
+    label: 'Flat logo',
+    description: 'Palette-snapped tracing for transparent brand marks and other low-color artwork with solid letter shapes.',
+  },
+  {
     id: 'photo',
     label: 'Photo',
     description: 'Smoother tracing with more colors for painterly or shaded raster art.',
@@ -113,6 +125,32 @@ export function createRasterTraceSettings(presetId: RasterTracePresetId = 'illus
         posterize: false,
         posterizeLevels: 2,
         removeBackground: true,
+        alphaCleanup: false,
+        alphaCleanupThreshold: 160,
+        paletteTracing: false,
+        paletteSize: 2,
+        removeInnerFragments: false,
+      };
+    case 'flat-logo':
+      return {
+        presetId,
+        mode: 'color',
+        numberOfColors: 6,
+        threshold: 160,
+        detail: 2,
+        blurRadius: 2,
+        noiseFilter: 8,
+        enhanceCorners: false,
+        photoCleanup: true,
+        photoCleanupStrength: 1,
+        posterize: true,
+        posterizeLevels: 5,
+        removeBackground: false,
+        alphaCleanup: true,
+        alphaCleanupThreshold: 200,
+        paletteTracing: true,
+        paletteSize: 6,
+        removeInnerFragments: true,
       };
     case 'photo':
       return {
@@ -129,6 +167,11 @@ export function createRasterTraceSettings(presetId: RasterTracePresetId = 'illus
         posterize: false,
         posterizeLevels: 6,
         removeBackground: false,
+        alphaCleanup: false,
+        alphaCleanupThreshold: 160,
+        paletteTracing: false,
+        paletteSize: 6,
+        removeInnerFragments: false,
       };
     case 'posterized-photo':
       return {
@@ -145,6 +188,11 @@ export function createRasterTraceSettings(presetId: RasterTracePresetId = 'illus
         posterize: true,
         posterizeLevels: 6,
         removeBackground: false,
+        alphaCleanup: false,
+        alphaCleanupThreshold: 160,
+        paletteTracing: false,
+        paletteSize: 6,
+        removeInnerFragments: false,
       };
     case 'grayscale':
       return {
@@ -161,6 +209,11 @@ export function createRasterTraceSettings(presetId: RasterTracePresetId = 'illus
         posterize: true,
         posterizeLevels: 7,
         removeBackground: false,
+        alphaCleanup: false,
+        alphaCleanupThreshold: 160,
+        paletteTracing: false,
+        paletteSize: 6,
+        removeInnerFragments: false,
       };
     case 'illustration':
     default:
@@ -178,6 +231,11 @@ export function createRasterTraceSettings(presetId: RasterTracePresetId = 'illus
         posterize: false,
         posterizeLevels: 6,
         removeBackground: false,
+        alphaCleanup: false,
+        alphaCleanupThreshold: 160,
+        paletteTracing: false,
+        paletteSize: 6,
+        removeInnerFragments: false,
       };
   }
 }
@@ -187,6 +245,10 @@ export function isJpegRasterAsset(file: Pick<File, 'name' | 'type'> | RasterTrac
   const mimeType = 'mimeType' in file ? file.mimeType : file.type;
   const lowerName = fileName.toLowerCase();
   return mimeType === 'image/jpeg' || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg');
+}
+
+export function isFlatLogoRasterAsset(asset: RasterTraceAsset) {
+  return asset.isFlatArtwork;
 }
 
 export function isSupportedRasterFile(file: Pick<File, 'name' | 'type'>) {
@@ -232,14 +294,31 @@ export async function loadRasterTraceAsset(file: File): Promise<RasterTraceAsset
 
   const dataUrl = await readFileAsDataUrl(file);
   const image = await loadImage(dataUrl);
+  const canvas = document.createElement('canvas');
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) {
+    throw new Error('The browser could not prepare a canvas context for trace analysis.');
+  }
+
+  context.clearRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+  const imageData = context.getImageData(0, 0, width, height);
+  const { hasTransparency, isFlatArtwork } = analyzeRasterArtwork(imageData);
 
   return {
     fileName: file.name,
     mimeType: file.type || 'application/octet-stream',
     dataUrl,
-    width: image.naturalWidth || image.width,
-    height: image.naturalHeight || image.height,
+    width,
+    height,
     bytes: file.size,
+    hasTransparency,
+    isFlatArtwork,
   };
 }
 
@@ -261,9 +340,12 @@ export async function traceRasterAssetToSvg(asset: RasterTraceAsset, settings: R
   context.drawImage(image, 0, 0, width, height);
 
   const imageData = context.getImageData(0, 0, width, height);
-  const cleanedImageData = settings.photoCleanup && settings.mode !== 'monochrome'
-    ? buildEdgePreservedImageData(imageData, settings.photoCleanupStrength)
+  const alphaCleanedImageData = settings.alphaCleanup
+    ? buildAlphaFlattenedImageData(imageData, settings.alphaCleanupThreshold)
     : imageData;
+  const cleanedImageData = settings.photoCleanup && settings.mode !== 'monochrome'
+    ? buildEdgePreservedImageData(alphaCleanedImageData, settings.photoCleanupStrength)
+    : alphaCleanedImageData;
   const preparedBaseImageData = settings.mode === 'monochrome'
     ? buildMonochromeImageData(cleanedImageData, settings.threshold)
     : settings.mode === 'grayscale'
@@ -272,11 +354,27 @@ export async function traceRasterAssetToSvg(asset: RasterTraceAsset, settings: R
   const preparedImageData = settings.posterize && settings.mode !== 'monochrome'
     ? buildPosterizedImageData(preparedBaseImageData, settings.posterizeLevels, settings.mode === 'grayscale')
     : preparedBaseImageData;
+  const palette = settings.paletteTracing && settings.mode === 'color'
+    ? buildDominantPalette(preparedImageData, settings.paletteSize)
+    : null;
+  const tracedImageData = palette ? snapImageDataToPalette(preparedImageData, palette) : preparedImageData;
+  const baseOptions = buildImageTracerOptions(settings);
+  const tracerOptions = palette
+    ? {
+        ...baseOptions,
+        colorsampling: 0,
+        colorquantcycles: 1,
+        numberofcolors: palette.length,
+        pal: palette,
+      }
+    : baseOptions;
 
-  const svgMarkup = ImageTracer.imagedataToSVG(preparedImageData, buildImageTracerOptions(settings));
+  const svgMarkup = ImageTracer.imagedataToSVG(tracedImageData, tracerOptions);
   return postprocessTracedSvgMarkup(svgMarkup, width, height, {
     removeWhiteFills: settings.mode === 'monochrome',
     removeBackground: settings.removeBackground,
+    normalizeColorFamilies: settings.paletteTracing,
+    removeContainedColorFragments: settings.removeInnerFragments,
   });
 }
 
@@ -284,7 +382,12 @@ export function postprocessTracedSvgMarkup(
   svgMarkup: string,
   width: number,
   height: number,
-  cleanupOptions: boolean | { removeWhiteFills?: boolean; removeBackground?: boolean } = false,
+  cleanupOptions: boolean | {
+    removeWhiteFills?: boolean;
+    removeBackground?: boolean;
+    normalizeColorFamilies?: boolean;
+    removeContainedColorFragments?: boolean;
+  } = false,
 ) {
   const documentRoot = new DOMParser().parseFromString(svgMarkup, 'image/svg+xml');
   const parserError = documentRoot.querySelector('parsererror');
@@ -304,8 +407,19 @@ export function postprocessTracedSvgMarkup(
   root.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
   const options = typeof cleanupOptions === 'boolean'
-    ? { removeWhiteFills: cleanupOptions, removeBackground: false }
-    : { removeWhiteFills: false, removeBackground: false, ...cleanupOptions };
+    ? {
+        removeWhiteFills: cleanupOptions,
+        removeBackground: false,
+        normalizeColorFamilies: false,
+        removeContainedColorFragments: false,
+      }
+    : {
+        removeWhiteFills: false,
+        removeBackground: false,
+        normalizeColorFamilies: false,
+        removeContainedColorFragments: false,
+        ...cleanupOptions,
+      };
 
   if (options.removeWhiteFills) {
     Array.from(root.querySelectorAll('*')).forEach((node) => {
@@ -320,7 +434,35 @@ export function postprocessTracedSvgMarkup(
     removeLikelyBackgroundNode(root, width, height);
   }
 
+  if (options.normalizeColorFamilies) {
+    normalizeFlatColorFamilies(root);
+  }
+
+  if (options.removeContainedColorFragments) {
+    removeContainedColorFragments(root);
+  }
+
   return new XMLSerializer().serializeToString(root);
+}
+
+export function buildAlphaFlattenedImageData(source: ImageData, threshold: number) {
+  const normalizedThreshold = Math.max(1, Math.min(254, Math.round(threshold)));
+  const nextData = new Uint8ClampedArray(source.data);
+
+  for (let index = 0; index < nextData.length; index += 4) {
+    const alpha = nextData[index + 3] ?? 0;
+    if (alpha < normalizedThreshold) {
+      nextData[index] = 0;
+      nextData[index + 1] = 0;
+      nextData[index + 2] = 0;
+      nextData[index + 3] = 0;
+      continue;
+    }
+
+    nextData[index + 3] = 255;
+  }
+
+  return createImageDataResult(nextData, source.width, source.height);
 }
 
 export function buildEdgePreservedImageData(source: ImageData, strength: number) {
@@ -630,4 +772,217 @@ function loadImage(source: string) {
     image.onerror = () => reject(new Error('The selected raster file could not be decoded by this browser.'));
     image.src = source;
   });
+}
+
+export function buildDominantPalette(source: ImageData, maxColors: number, quantizeStep = 16) {
+  const normalizedColors = Math.max(2, Math.min(16, Math.round(maxColors)));
+  const normalizedStep = Math.max(4, Math.min(64, Math.round(quantizeStep)));
+  const buckets = new Map<string, { count: number; color: ImageTracerPaletteColor }>();
+
+  for (let index = 0; index < source.data.length; index += 4) {
+    const alpha = source.data[index + 3] ?? 0;
+    if (alpha === 0) {
+      continue;
+    }
+
+    const red = Math.round((source.data[index] ?? 0) / normalizedStep) * normalizedStep;
+    const green = Math.round((source.data[index + 1] ?? 0) / normalizedStep) * normalizedStep;
+    const blue = Math.round((source.data[index + 2] ?? 0) / normalizedStep) * normalizedStep;
+    const key = `${red}-${green}-${blue}`;
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.count += 1;
+      continue;
+    }
+
+    buckets.set(key, {
+      count: 1,
+      color: {
+        r: Math.max(0, Math.min(255, red)),
+        g: Math.max(0, Math.min(255, green)),
+        b: Math.max(0, Math.min(255, blue)),
+        a: 255,
+      },
+    });
+  }
+
+  return Array.from(buckets.values())
+    .sort((left, right) => right.count - left.count)
+    .slice(0, normalizedColors)
+    .map((entry) => entry.color);
+}
+
+export function snapImageDataToPalette(source: ImageData, palette: ImageTracerPaletteColor[]) {
+  const nextData = new Uint8ClampedArray(source.data);
+
+  for (let index = 0; index < nextData.length; index += 4) {
+    const alpha = nextData[index + 3] ?? 0;
+    if (alpha === 0) {
+      continue;
+    }
+
+    let bestColor = palette[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    palette.forEach((color) => {
+      const distance = Math.abs(color.r - (nextData[index] ?? 0))
+        + Math.abs(color.g - (nextData[index + 1] ?? 0))
+        + Math.abs(color.b - (nextData[index + 2] ?? 0));
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestColor = color;
+      }
+    });
+
+    nextData[index] = bestColor.r;
+    nextData[index + 1] = bestColor.g;
+    nextData[index + 2] = bestColor.b;
+    nextData[index + 3] = 255;
+  }
+
+  return createImageDataResult(nextData, source.width, source.height);
+}
+
+function analyzeRasterArtwork(source: ImageData) {
+  let transparentPixels = 0;
+  let opaquePixels = 0;
+  const buckets = new Map<string, number>();
+
+  for (let index = 0; index < source.data.length; index += 4) {
+    const alpha = source.data[index + 3] ?? 0;
+    if (alpha < 8) {
+      transparentPixels += 1;
+      continue;
+    }
+
+    opaquePixels += 1;
+    const red = Math.round((source.data[index] ?? 0) / 16) * 16;
+    const green = Math.round((source.data[index + 1] ?? 0) / 16) * 16;
+    const blue = Math.round((source.data[index + 2] ?? 0) / 16) * 16;
+    const key = `${red}-${green}-${blue}`;
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+
+  const topCoverage = opaquePixels === 0
+    ? 0
+    : Array.from(buckets.values())
+      .sort((left, right) => right - left)
+      .slice(0, 6)
+      .reduce((sum, count) => sum + count, 0) / opaquePixels;
+
+  return {
+    hasTransparency: transparentPixels > 0,
+    isFlatArtwork: transparentPixels > 0 && topCoverage >= 0.88,
+  };
+}
+
+function normalizeFlatColorFamilies(root: Element) {
+  const nodes = Array.from(root.querySelectorAll('*'));
+  const representatives = new Map<string, string>();
+  const counts = new Map<string, Map<string, number>>();
+
+  nodes.forEach((node) => {
+    const fillValue = getEffectiveFill(node);
+    if (!fillValue) {
+      return;
+    }
+    const family = classifyFlatColorFamily(fillValue);
+    if (family === 'other' || family === 'white') {
+      return;
+    }
+    const familyCounts = counts.get(family) ?? new Map<string, number>();
+    familyCounts.set(fillValue, (familyCounts.get(fillValue) ?? 0) + 1);
+    counts.set(family, familyCounts);
+  });
+
+  counts.forEach((familyCounts, family) => {
+    const representative = Array.from(familyCounts.entries())
+      .sort((left, right) => right[1] - left[1])[0]?.[0];
+    if (representative) {
+      representatives.set(family, representative);
+    }
+  });
+
+  nodes.forEach((node) => {
+    const fillValue = getEffectiveFill(node);
+    if (!fillValue) {
+      return;
+    }
+    const family = classifyFlatColorFamily(fillValue);
+    const representative = representatives.get(family);
+    if (!representative || representative === fillValue) {
+      return;
+    }
+    node.setAttribute('fill', representative);
+    if (node.hasAttribute('style')) {
+      const styleValue = node.getAttribute('style') ?? '';
+      node.setAttribute('style', styleValue.replace(/fill\s*:\s*[^;]+/i, `fill:${representative}`));
+    }
+  });
+}
+
+function removeContainedColorFragments(root: Element) {
+  const nodes = Array.from(root.querySelectorAll('*'))
+    .map((node) => {
+      const fillValue = getEffectiveFill(node);
+      const coverage = getApproximateNodeCoverage(node);
+      if (!fillValue || !coverage) {
+        return null;
+      }
+      return {
+        node,
+        fillValue,
+        coverage,
+        area: Math.max(0, coverage.maxX - coverage.minX) * Math.max(0, coverage.maxY - coverage.minY),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .sort((left, right) => left.area - right.area);
+
+  nodes.forEach((candidate, index) => {
+    if (!candidate.node.parentElement) {
+      return;
+    }
+    for (let otherIndex = index + 1; otherIndex < nodes.length; otherIndex += 1) {
+      const other = nodes[otherIndex];
+      if (candidate.fillValue !== other.fillValue || !other.node.parentElement) {
+        continue;
+      }
+      if (candidate.area >= other.area * 0.72) {
+        continue;
+      }
+      if (!isCoverageContained(candidate.coverage, other.coverage, 1.5)) {
+        continue;
+      }
+
+      candidate.node.remove();
+      break;
+    }
+  });
+}
+
+function isCoverageContained(
+  inner: { minX: number; minY: number; maxX: number; maxY: number },
+  outer: { minX: number; minY: number; maxX: number; maxY: number },
+  margin: number,
+) {
+  return inner.minX >= outer.minX - margin
+    && inner.minY >= outer.minY - margin
+    && inner.maxX <= outer.maxX + margin
+    && inner.maxY <= outer.maxY + margin;
+}
+
+function classifyFlatColorFamily(value: string) {
+  const channels = parseColorChannels(value);
+  if (!channels) {
+    return isWhiteFill(value) ? 'white' : 'other';
+  }
+
+  const [red, green, blue] = channels;
+  if (red >= blue + 20 && red >= green + 20) {
+    return 'red';
+  }
+  if (blue >= red + 20 && blue >= green) {
+    return 'blue';
+  }
+  return isNearWhiteFill(value) ? 'white' : 'other';
 }

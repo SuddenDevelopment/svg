@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useId, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { sampleSvg } from './lib/sample-svg';
 import {
@@ -56,6 +56,7 @@ import { clearSvgSource, optimizeSvgSource, prettifySvgSource } from './lib/svg-
 import {
   buildTracedSvgFileName,
   createRasterTraceSettings,
+  isFlatLogoRasterAsset,
   isJpegRasterAsset,
   isSupportedRasterFile,
   loadRasterTraceAsset,
@@ -151,6 +152,9 @@ type SelectionAppearanceSnapshot = {
   preset: SelectionAppearancePresetId;
   settings: SelectionAppearanceSettings;
 };
+
+type ThemePreference = 'system' | 'light' | 'dark';
+type ResolvedTheme = 'light' | 'dark';
 
 const exportPresetCards: Array<{ id: ExportVariant; title: string; description: string }> = [
   {
@@ -251,6 +255,7 @@ const inspectorTabLabels: Record<InspectorTab, string> = {
 };
 
 const SELECTION_APPEARANCE_STORAGE_KEY = 'svg-workbench.selection-appearance';
+const THEME_PREFERENCE_STORAGE_KEY = 'svg-workbench.theme-preference';
 const selectionAppearanceStateIds: SelectionAppearanceStateId[] = ['selected', 'hovered', 'changed', 'targeted'];
 const selectionAppearanceIntensityOptions: SelectionAppearanceIntensity[] = ['soft', 'medium', 'strong'];
 const selectionAppearanceShadowScale: Record<SelectionAppearanceIntensity, { blur: number; alpha: number }> = {
@@ -411,6 +416,31 @@ function readStoredSelectionAppearance() {
   } catch {
     return fallback;
   }
+}
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'light' || value === 'dark';
+}
+
+function readStoredThemePreference(): ThemePreference {
+  if (typeof window === 'undefined') {
+    return 'system';
+  }
+
+  try {
+    const raw = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
+    return isThemePreference(raw) ? raw : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function resolveThemePreference(preference: ThemePreference, prefersDark: boolean): ResolvedTheme {
+  if (preference === 'system') {
+    return prefersDark ? 'dark' : 'light';
+  }
+
+  return preference;
 }
 
 function hexToRgbChannels(value: string) {
@@ -664,7 +694,7 @@ function App() {
   const [styleDraft, setStyleDraft] = useState<StyleDraft>(() => createStyleDraft());
   const [styleMessage, setStyleMessage] = useState<string | null>(null);
   const [previewTimelineSeconds, setPreviewTimelineSeconds] = useState(0);
-  const [isPreviewTimelinePlaying, setIsPreviewTimelinePlaying] = useState(true);
+  const [isPreviewTimelinePlaying, setIsPreviewTimelinePlaying] = useState(false);
   const [hoveredPreviewNodeIds, setHoveredPreviewNodeIds] = useState<string[]>([]);
   const [recentChangePaths, setRecentChangePaths] = useState<string[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -678,6 +708,8 @@ function App() {
   );
   const [selectionAppearanceTransferText, setSelectionAppearanceTransferText] = useState('');
   const [selectionAppearanceMessage, setSelectionAppearanceMessage] = useState<string | null>(null);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readStoredThemePreference());
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [repairMessage, setRepairMessage] = useState<string | null>(null);
   const [sourceActionMessage, setSourceActionMessage] = useState<string | null>(null);
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>({ start: 0, end: 0 });
@@ -695,9 +727,15 @@ function App() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
   const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
   const [isSelectedElementPanelCollapsed, setIsSelectedElementPanelCollapsed] = useState(false);
+  const [isRasterTracePanelExpanded, setIsRasterTracePanelExpanded] = useState(false);
+  const [isFontToolsExpanded, setIsFontToolsExpanded] = useState(false);
+  const [isAdvancedRepairToolsExpanded, setIsAdvancedRepairToolsExpanded] = useState(false);
+  const [isExportDetailsExpanded, setIsExportDetailsExpanded] = useState(false);
+  const [isOverviewInventoryExpanded, setIsOverviewInventoryExpanded] = useState(false);
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('collapsed');
   const deferredSource = useDeferredValue(source);
+  const resolvedTheme = resolveThemePreference(themePreference, systemPrefersDark);
   const textOptions: TextConversionOptions = {
     uploadedFonts,
     fontMappings,
@@ -731,6 +769,42 @@ function App() {
       return;
     }
   }, [selectionAppearancePreset, selectionAppearanceSettings]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const updatePreference = () => setSystemPrefersDark(mediaQuery.matches);
+    updatePreference();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updatePreference);
+      return () => mediaQuery.removeEventListener('change', updatePreference);
+    }
+
+    mediaQuery.addListener(updatePreference);
+    return () => mediaQuery.removeListener(updatePreference);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, themePreference);
+    } catch {
+      return;
+    }
+  }, [themePreference]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.style.colorScheme = resolvedTheme;
+
+    return () => {
+      delete document.documentElement.dataset.theme;
+      document.documentElement.style.removeProperty('color-scheme');
+    };
+  }, [resolvedTheme]);
 
   useEffect(() => {
     setSelectedNodeId((current) => {
@@ -782,9 +856,9 @@ function App() {
     previewHitCycleRef.current = null;
   }, [analysis?.previewMarkup, previewTab]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPreviewTimelineSeconds(0);
-    setIsPreviewTimelinePlaying(true);
+    setIsPreviewTimelinePlaying(false);
 
     const previewSvg = previewFrameRef.current?.querySelector('svg') as SVGSVGElement | null;
     if (!previewSvg) {
@@ -793,11 +867,11 @@ function App() {
 
     const timelineSvg = previewSvg as SVGSVGElement & {
       setCurrentTime?: (seconds: number) => void;
-      unpauseAnimations?: () => void;
+      pauseAnimations?: () => void;
     };
 
     timelineSvg.setCurrentTime?.(0);
-    timelineSvg.unpauseAnimations?.();
+    timelineSvg.pauseAnimations?.();
   }, [analysis?.previewMarkup, previewTab]);
 
   useEffect(() => {
@@ -1026,6 +1100,8 @@ function App() {
   const authoringCleanupCount = analysis
     ? analysis.authoringMetadata.metadataElementCount + analysis.authoringMetadata.namespacedNodeCount + analysis.authoringMetadata.namespacedAttributeCount
     : 0;
+  const referencedTextFamilies = analysis?.opportunities.referencedTextFamilies ?? [];
+  const hasFontSupportTools = uploadedFonts.length > 0 || referencedTextFamilies.length > 0;
   const strokeOutlineCount = analysis?.opportunities.strokeOutlineCount ?? 0;
   const blockedStrokeOutlineCount = analysis?.opportunities.blockedStrokeOutlineCount ?? 0;
   const pathCleanupCount = analysis?.opportunities.pathCleanupCount ?? 0;
@@ -1093,6 +1169,16 @@ function App() {
       + analysis.opportunities.bakeableContainerTransformCount
       + analysis.opportunities.expandableUseCount
     : 0;
+  const runtimeFeatureCount = analysis
+    ? analysis.runtimeFeatures.animationElementCount
+      + analysis.runtimeFeatures.mediaElementCount
+      + analysis.runtimeFeatures.linkElementCount
+    : 0;
+  const referenceInventoryCount = analysis
+    ? analysis.inventory.defsCount
+      + analysis.inventory.useCount
+      + analysis.inventory.externalReferenceCount
+    : 0;
   const statusSummary = analysis
     ? `${analysis.totalElements} elements • ${analysis.exportReadiness.autoFixCount} auto-fixable • ${analysis.exportReadiness.blockerCount} blocked`
     : parseError
@@ -1149,6 +1235,18 @@ function App() {
     }
   }, [activeSection, availableInspectorTabs, inspectorTab]);
 
+  useEffect(() => {
+    if (rasterTraceAsset) {
+      setIsRasterTracePanelExpanded(true);
+    }
+  }, [rasterTraceAsset]);
+
+  useEffect(() => {
+    if (uploadedFonts.length > 0) {
+      setIsFontToolsExpanded(true);
+    }
+  }, [uploadedFonts.length]);
+
   function loadSvgSource(nextSource: string, nextFileName: string) {
     setSource(nextSource);
     setFileName(nextFileName);
@@ -1168,7 +1266,7 @@ function App() {
     setAnimationMessage(null);
     setInteractionMessage(null);
     setPreviewTimelineSeconds(0);
-    setIsPreviewTimelinePlaying(true);
+    setIsPreviewTimelinePlaying(false);
   }
 
   function updateRasterTraceSetting<Key extends keyof RasterTraceSettings>(field: Key, value: RasterTraceSettings[Key]) {
@@ -1198,20 +1296,42 @@ function App() {
     return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
   }
 
+  async function traceRasterAssetWithSettings(asset: RasterTraceAsset, settings: RasterTraceSettings) {
+    setIsTracingRaster(true);
+    setRasterTraceMessage(null);
+
+    try {
+      const tracedSource = await traceRasterAssetToSvg(asset, settings);
+      const tracedFileName = buildTracedSvgFileName(asset.fileName);
+      const presetLabel = rasterTracePresets.find((preset) => preset.id === settings.presetId)?.label.toLowerCase() ?? 'trace';
+      loadSvgSource(tracedSource, tracedFileName);
+      setActiveSection('file');
+      setSourceActionMessage(`Traced ${asset.fileName} into ${tracedFileName}.`);
+      setRasterTraceMessage(`Applied the ${presetLabel} trace preset to ${asset.fileName}.`);
+    } catch (error) {
+      setRasterTraceMessage(error instanceof Error ? error.message : 'Unable to trace the current raster image.');
+    } finally {
+      setIsTracingRaster(false);
+    }
+  }
+
   async function loadRasterAssetIntoTracePanel(file: File) {
     try {
       const asset = await loadRasterTraceAsset(file);
-      const recommendedPresetId = isJpegRasterAsset(asset) ? 'posterized-photo' : null;
+      const recommendedPresetId = isJpegRasterAsset(asset)
+        ? 'posterized-photo'
+        : isFlatLogoRasterAsset(asset)
+          ? 'flat-logo'
+          : null;
+      const nextSettings = recommendedPresetId
+        ? createRasterTraceSettings(recommendedPresetId)
+        : rasterTraceSettings;
       setRasterTraceAsset(asset);
-      if (recommendedPresetId) {
-        setRasterTraceSettings(createRasterTraceSettings(recommendedPresetId));
-      }
+      setRasterTraceSettings(nextSettings);
       setActiveSection('file');
       setPreviewTab('preview');
-      setRasterTraceMessage(recommendedPresetId
-        ? `Loaded ${file.name} for tracing with the posterized photo preset for cleaner JPG edges.`
-        : `Loaded ${file.name} for tracing.`);
       setSourceActionMessage(null);
+      await traceRasterAssetWithSettings(asset, nextSettings);
     } catch (error) {
       setRasterTraceMessage(error instanceof Error ? error.message : 'Unable to load the raster image for tracing.');
     }
@@ -1246,21 +1366,7 @@ function App() {
       return;
     }
 
-    setIsTracingRaster(true);
-    setRasterTraceMessage(null);
-
-    try {
-      const tracedSource = await traceRasterAssetToSvg(rasterTraceAsset, rasterTraceSettings);
-      const tracedFileName = buildTracedSvgFileName(rasterTraceAsset.fileName);
-      loadSvgSource(tracedSource, tracedFileName);
-      setActiveSection('file');
-      setSourceActionMessage(`Traced ${rasterTraceAsset.fileName} into ${tracedFileName}.`);
-      setRasterTraceMessage(`Applied the ${activeRasterTracePreset.label.toLowerCase()} trace preset to ${rasterTraceAsset.fileName}.`);
-    } catch (error) {
-      setRasterTraceMessage(error instanceof Error ? error.message : 'Unable to trace the current raster image.');
-    } finally {
-      setIsTracingRaster(false);
-    }
+    await traceRasterAssetWithSettings(rasterTraceAsset, rasterTraceSettings);
   }
 
   function resetPreviewViewport() {
@@ -1694,6 +1800,7 @@ function App() {
   }
 
   function downloadExportVariant(variant: ExportVariant) {
+    setIsExportDetailsExpanded(true);
     if (variant === 'current') {
       const nextFileName = buildExportFileName(fileName, 'current');
       downloadSvgSource(source, nextFileName);
@@ -1725,6 +1832,7 @@ function App() {
   }
 
   async function copyExportVariant(variant: ExportVariant) {
+    setIsExportDetailsExpanded(true);
     if (variant === 'current') {
       const nextFileName = buildExportFileName(fileName, 'current');
 
@@ -1769,6 +1877,7 @@ function App() {
   }
 
   async function downloadPngSnapshotVariant(variant: ExportVariant) {
+    setIsExportDetailsExpanded(true);
     const exportSource = getExportVariantSource(variant);
     if (!exportSource) {
       setRepairMessage('Unable to build a PNG snapshot from invalid SVG markup.');
@@ -2685,115 +2794,140 @@ function App() {
 
   function renderSelectionStyleSection() {
     return (
-      <section className="focus-card section-card">
-        <div className="section-header-inline" data-fit-container>
-          <h3>Selection appearance</h3>
-          <span className="status-label">{activeSelectionAppearance.label}</span>
-        </div>
-        <p className="section-copy">Adjust how selected, hovered, changed, and animation-targeted nodes read in the live preview.</p>
-        <div className="selection-appearance-grid" role="list" aria-label="Selection highlight presets">
-          {selectionAppearancePresets.map((preset) => (
-            <button
-              key={preset.id}
-              className={`selection-appearance-card${selectionAppearancePreset === preset.id ? ' active' : ''}`}
-              type="button"
-              onClick={() => setSelectionAppearancePreset(preset.id)}
-              aria-pressed={selectionAppearancePreset === preset.id}
-            >
-              <strong>{preset.label}</strong>
-              <span>{preset.description}</span>
-              <span className="selection-appearance-swatches" aria-hidden="true">
-                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.selected }} />
-                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.hovered }} />
-                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.changed }} />
-                <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.targeted }} />
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="selection-appearance-panel" data-selection-style={selectionAppearancePreset} style={selectionAppearanceStyle}>
-          <p className="selection-subtitle">Highlight controls</p>
-          <p className="selection-copy selection-appearance-copy">Saved in this browser and applied the next time you open the workbench.</p>
-          <div className="selection-appearance-actions" role="toolbar" aria-label="Selection appearance preset actions">
-            <button className="ghost-button" type="button" onClick={exportSelectionAppearancePreset}>
-              Export preset JSON
-            </button>
-            <button className="ghost-button" type="button" onClick={importSelectionAppearancePreset} disabled={selectionAppearanceTransferText.trim().length === 0}>
-              Import preset JSON
-            </button>
-            <button className="ghost-button" type="button" onClick={resetSelectionAppearancePreset}>
-              Reset defaults
-            </button>
+      <>
+        <section className="focus-card section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Theme</h3>
+            <span className="status-label">{resolvedTheme === 'dark' ? 'Dark' : 'Light'}</span>
           </div>
-          <label className="selection-appearance-json-field">
-            <span>Preset JSON</span>
-            <textarea
-              aria-label="Selection appearance preset JSON"
-              value={selectionAppearanceTransferText}
-              onChange={(event) => {
-                setSelectionAppearanceTransferText(event.target.value);
-                setSelectionAppearanceMessage(null);
-              }}
-              rows={8}
-              spellCheck={false}
-            />
-          </label>
-          {selectionAppearanceMessage ? <p className="selection-copy selection-appearance-copy">{selectionAppearanceMessage}</p> : null}
-          <ul className="selection-appearance-legend">
-            {selectionAppearanceLegend.map((item) => {
-              const settings = selectionAppearanceSettings[item.id];
+          <p className="section-copy">Follow the system theme by default, or pin the workbench to a light or dark interface.</p>
+          <div className="theme-choice-grid" role="radiogroup" aria-label="Workbench theme">
+            {(['system', 'light', 'dark'] as ThemePreference[]).map((option) => (
+              <button
+                key={option}
+                className={`theme-choice-card${themePreference === option ? ' active' : ''}`}
+                type="button"
+                role="radio"
+                aria-checked={themePreference === option}
+                onClick={() => setThemePreference(option)}
+              >
+                <strong>{option === 'system' ? 'System' : option === 'light' ? 'Light' : 'Dark'}</strong>
+                <span>
+                  {option === 'system'
+                    ? `Matches your OS preference. Currently ${resolvedTheme}.`
+                    : option === 'light'
+                      ? 'Warm paper surfaces with bright contrast.'
+                      : 'Low-glare panels with higher contrast for dense inspection work.'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
 
-              return (
-                <li key={item.id}>
-                  <div className="selection-appearance-state-card">
-                    <div className="selection-appearance-state-header">
-                      <span className="selection-appearance-legend-swatch" data-selection-legend={item.id} aria-hidden="true" />
-                      <strong>{item.label}</strong>
+        <section className="focus-card section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Selection appearance</h3>
+            <span className="status-label">{activeSelectionAppearance.label}</span>
+          </div>
+          <p className="section-copy">Adjust how selected, hovered, changed, and animation-targeted nodes read in the live preview.</p>
+          <div className="selection-appearance-grid" role="list" aria-label="Selection highlight presets">
+            {selectionAppearancePresets.map((preset) => (
+              <button
+                key={preset.id}
+                className={`selection-appearance-card${selectionAppearancePreset === preset.id ? ' active' : ''}`}
+                type="button"
+                onClick={() => setSelectionAppearancePreset(preset.id)}
+                aria-pressed={selectionAppearancePreset === preset.id}
+              >
+                <strong>{preset.label}</strong>
+                <span>{preset.description}</span>
+                <span className="selection-appearance-swatches" aria-hidden="true">
+                  <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.selected }} />
+                  <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.hovered }} />
+                  <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.changed }} />
+                  <span className="selection-appearance-swatch" style={{ backgroundColor: preset.palette.targeted }} />
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="selection-appearance-panel" data-selection-style={selectionAppearancePreset} style={selectionAppearanceStyle}>
+            <p className="selection-subtitle">Highlight controls</p>
+            <p className="selection-copy selection-appearance-copy">Saved in this browser and applied the next time you open the workbench.</p>
+            <div className="selection-appearance-actions" role="toolbar" aria-label="Selection appearance preset actions">
+              <button className="ghost-button" type="button" onClick={exportSelectionAppearancePreset}>
+                Export preset JSON
+              </button>
+              <button className="ghost-button" type="button" onClick={importSelectionAppearancePreset} disabled={selectionAppearanceTransferText.trim().length === 0}>
+                Import preset JSON
+              </button>
+              <button className="ghost-button" type="button" onClick={resetSelectionAppearancePreset}>
+                Reset defaults
+              </button>
+            </div>
+            <label className="selection-appearance-json-field">
+              <span>Preset JSON</span>
+              <textarea
+                aria-label="Selection appearance preset JSON"
+                value={selectionAppearanceTransferText}
+                onChange={(event) => {
+                  setSelectionAppearanceTransferText(event.target.value);
+                  setSelectionAppearanceMessage(null);
+                }}
+                rows={8}
+                spellCheck={false}
+              />
+            </label>
+            {selectionAppearanceMessage ? <p className="selection-copy selection-appearance-copy">{selectionAppearanceMessage}</p> : null}
+            <ul className="selection-appearance-legend">
+              {selectionAppearanceLegend.map((item) => {
+                const settings = selectionAppearanceSettings[item.id];
+
+                return (
+                  <li key={item.id}>
+                    <div className="selection-appearance-state-card">
+                      <div className="selection-appearance-state-header">
+                        <span className="selection-appearance-legend-swatch" data-selection-legend={item.id} aria-hidden="true" />
+                        <strong>{item.label}</strong>
+                      </div>
+                      <p className="selection-appearance-state-copy">{item.description}</p>
+                      <label className="selection-appearance-toggle">
+                        <input
+                          type="checkbox"
+                          aria-label={`${item.label} highlight visible`}
+                          checked={settings.visible}
+                          onChange={(event) => updateSelectionAppearanceVisibility(item.id, event.target.checked)}
+                        />
+                        Show highlight
+                      </label>
+                      <label className="selection-appearance-field">
+                        <span>{item.label} highlight intensity</span>
+                        <select
+                          aria-label={`${item.label} highlight intensity`}
+                          value={settings.intensity}
+                          disabled={!settings.visible}
+                          onChange={(event) => updateSelectionAppearanceIntensity(item.id, event.target.value as SelectionAppearanceIntensity)}
+                        >
+                          {selectionAppearanceIntensityOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option[0].toUpperCase() + option.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
-                    <p className="selection-appearance-state-copy">{item.description}</p>
-                    <label className="selection-appearance-toggle">
-                      <input
-                        type="checkbox"
-                        aria-label={`${item.label} highlight visible`}
-                        checked={settings.visible}
-                        onChange={(event) => updateSelectionAppearanceVisibility(item.id, event.target.checked)}
-                      />
-                      Show highlight
-                    </label>
-                    <label className="selection-appearance-field">
-                      <span>Intensity</span>
-                      <select
-                        aria-label={`${item.label} highlight intensity`}
-                        value={settings.intensity}
-                        onChange={(event) => updateSelectionAppearanceIntensity(item.id, event.target.value as SelectionAppearanceIntensity)}
-                        disabled={!settings.visible}
-                      >
-                        {selectionAppearanceIntensityOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option.charAt(0).toUpperCase() + option.slice(1)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      </section>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </section>
+      </>
     );
   }
 
   function renderAnimationSection() {
     return (
       <>
-        <section className="status-card compact-card">
-          <p className="status-label">Animation authoring</p>
-          <strong>{animationTargetNodes.length} selected target{animationTargetNodes.length === 1 ? '' : 's'}</strong>
-          <p>{analysis?.runtimeFeatures.animationElementCount ?? 0} animation nodes are currently present in the SVG.</p>
-        </section>
-
         <section className="focus-card section-card animation-section-card">
           <div className="section-header-inline" data-fit-container>
             <h3>Selection targets</h3>
@@ -3669,8 +3803,20 @@ function App() {
         </section>
 
         <section className="status-card trace-card section-card">
-          <p className="status-label">Raster trace</p>
-          <strong>{rasterTraceAsset ? rasterTraceAsset.fileName : `Load ${rasterTraceFormatLabel}`}</strong>
+          <div className="section-header-inline" data-fit-container>
+            <div>
+              <p className="status-label">Raster trace</p>
+              <strong>{rasterTraceAsset ? rasterTraceAsset.fileName : `Load ${rasterTraceFormatLabel}`}</strong>
+            </div>
+            <button
+              className="ghost-button selected-element-toggle"
+              type="button"
+              aria-expanded={isRasterTracePanelExpanded}
+              onClick={() => setIsRasterTracePanelExpanded((current) => !current)}
+            >
+              {isRasterTracePanelExpanded ? 'Hide options' : 'Show options'}
+            </button>
+          </div>
           <p>Trace raster art entirely in the browser, then load the generated SVG into the editor and preview.</p>
           <div className="font-actions">
             <button className="ghost-button repair-button" type="button" onClick={() => rasterInputRef.current?.click()}>
@@ -3680,221 +3826,227 @@ function App() {
               Clear raster
             </button>
           </div>
-          <div className="trace-meta-grid">
-            <div className="source-feedback-card compact-source-metrics">
-              <span className="status-label">Output</span>
-              <strong>{rasterTraceAsset ? buildTracedSvgFileName(rasterTraceAsset.fileName) : 'No trace queued'}</strong>
-              <p className="source-feedback-copy">The trace result replaces the current SVG source in the editor.</p>
-            </div>
-            <div className="source-feedback-card compact-source-metrics">
-              <span className="status-label">Formats</span>
-              <strong>{rasterTraceFormatLabel}</strong>
-              <p className="source-feedback-copy">Drag onto the preview or open a raster file directly.</p>
-            </div>
-            <div className="source-feedback-card compact-source-metrics">
-              <span className="status-label">Image</span>
-              <strong>{rasterTraceAsset ? `${rasterTraceAsset.width} × ${rasterTraceAsset.height}` : 'No raster loaded'}</strong>
-              <p className="source-feedback-copy">{rasterTraceAsset ? `${formatByteCount(rasterTraceAsset.bytes)} • ${rasterTraceAsset.mimeType || 'unknown type'}` : 'Load a raster file to inspect its size before tracing.'}</p>
-            </div>
-          </div>
-          <div className="trace-preview-shell">
-            {rasterTraceAsset ? (
-              <img className="trace-preview-image" src={rasterTraceAsset.dataUrl} alt={`Raster preview of ${rasterTraceAsset.fileName}`} />
-            ) : (
-              <div className="empty-state trace-empty-state">
-                <strong>Raster input</strong>
-                <p>Queue a PNG, JPG, WebP, GIF, BMP, AVIF, or TIFF image to tune the trace before loading the SVG result into the editor.</p>
-              </div>
-            )}
-          </div>
-          <div className="trace-field-grid">
-            <label className="animation-field animation-field-split">
-              <span>Trace preset</span>
-              <select aria-label="Trace preset" value={rasterTraceSettings.presetId} onChange={(event) => applyRasterTracePreset(event.target.value as RasterTracePresetId)}>
-                {rasterTracePresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="animation-field animation-field-split">
-              <span>Mode</span>
-              <select aria-label="Raster trace mode" value={rasterTraceSettings.mode} onChange={(event) => updateRasterTraceSetting('mode', event.target.value as RasterTraceMode)}>
-                <option value="color">Color</option>
-                <option value="grayscale">Grayscale</option>
-                <option value="monochrome">Monochrome</option>
-              </select>
-            </label>
-            <label className="animation-field">
-              <span>Colors</span>
-              <div className="trace-range-row">
-                <input
-                  aria-label="Raster trace color count"
-                  type="range"
-                  min="2"
-                  max="48"
-                  step="1"
-                  value={rasterTraceSettings.mode === 'monochrome' ? 2 : rasterTraceSettings.numberOfColors}
-                  onChange={(event) => updateRasterTraceSetting('numberOfColors', Number(event.target.value))}
-                  disabled={rasterTraceSettings.mode === 'monochrome'}
-                />
-                <output>{rasterTraceSettings.mode === 'monochrome' ? 2 : rasterTraceSettings.numberOfColors}</output>
-              </div>
-            </label>
-            <label className="animation-field">
-              <span>Threshold</span>
-              <div className="trace-range-row">
-                <input
-                  aria-label="Raster trace threshold"
-                  type="range"
-                  min="0"
-                  max="255"
-                  step="1"
-                  value={rasterTraceSettings.threshold}
-                  onChange={(event) => updateRasterTraceSetting('threshold', Number(event.target.value))}
-                  disabled={rasterTraceSettings.mode !== 'monochrome'}
-                />
-                <output>{rasterTraceSettings.threshold}</output>
-              </div>
-            </label>
-            {shouldShowPhotoCleanupControls ? (
-              <label className="selection-appearance-toggle trace-toggle">
-                <input
-                  type="checkbox"
-                  aria-label="Edge-preserving photo cleanup"
-                  checked={rasterTraceSettings.photoCleanup}
-                  onChange={(event) => updateRasterTraceSetting('photoCleanup', event.target.checked)}
-                />
-                Edge-preserving photo cleanup
-              </label>
-            ) : null}
-            {shouldShowPhotoCleanupControls ? (
-              <label className="animation-field">
-                <span>Cleanup strength</span>
-                <div className="trace-range-row">
-                  <input
-                    aria-label="Raster trace cleanup strength"
-                    type="range"
-                    min="1"
-                    max="3"
-                    step="1"
-                    value={rasterTraceSettings.photoCleanupStrength}
-                    onChange={(event) => updateRasterTraceSetting('photoCleanupStrength', Number(event.target.value))}
-                    disabled={!rasterTraceSettings.photoCleanup}
-                  />
-                  <output>{rasterTraceSettings.photoCleanupStrength}</output>
+          {!isRasterTracePanelExpanded ? (
+            <p className="repair-note">Trace settings stay hidden until you need to tune a raster import. Load an image or expand this panel for manual control.</p>
+          ) : (
+            <div className="section-disclosure-panel">
+              <div className="trace-meta-grid">
+                <div className="source-feedback-card compact-source-metrics">
+                  <span className="status-label">Output</span>
+                  <strong>{rasterTraceAsset ? buildTracedSvgFileName(rasterTraceAsset.fileName) : 'No trace queued'}</strong>
+                  <p className="source-feedback-copy">The trace result replaces the current SVG source in the editor.</p>
                 </div>
-              </label>
-            ) : null}
-            {shouldShowPosterizeControls ? (
-              <label className="selection-appearance-toggle trace-toggle">
-                <input
-                  type="checkbox"
-                  aria-label="Posterize raster trace colors"
-                  checked={rasterTraceSettings.posterize}
-                  onChange={(event) => updateRasterTraceSetting('posterize', event.target.checked)}
-                />
-                Posterize before tracing
-              </label>
-            ) : null}
-            {shouldShowPosterizeControls ? (
-              <label className="animation-field">
-                <span>Posterize levels</span>
-                <div className="trace-range-row">
-                  <input
-                    aria-label="Raster trace posterize levels"
-                    type="range"
-                    min="2"
-                    max="12"
-                    step="1"
-                    value={rasterTraceSettings.posterizeLevels}
-                    onChange={(event) => updateRasterTraceSetting('posterizeLevels', Number(event.target.value))}
-                    disabled={!rasterTraceSettings.posterize}
-                  />
-                  <output>{rasterTraceSettings.posterizeLevels}</output>
+                <div className="source-feedback-card compact-source-metrics">
+                  <span className="status-label">Formats</span>
+                  <strong>{rasterTraceFormatLabel}</strong>
+                  <p className="source-feedback-copy">Drag onto the preview or open a raster file directly.</p>
                 </div>
-              </label>
-            ) : null}
-            <label className="selection-appearance-toggle trace-toggle">
-              <input
-                type="checkbox"
-                aria-label="Remove traced white background"
-                checked={rasterTraceSettings.removeBackground}
-                onChange={(event) => updateRasterTraceSetting('removeBackground', event.target.checked)}
-              />
-              Remove traced white background
-            </label>
-            <label className="animation-field">
-              <span>Detail</span>
-              <div className="trace-range-row">
-                <input
-                  aria-label="Raster trace detail"
-                  type="range"
-                  min="1"
-                  max="5"
-                  step="1"
-                  value={rasterTraceSettings.detail}
-                  onChange={(event) => updateRasterTraceSetting('detail', Number(event.target.value))}
-                />
-                <output>{rasterTraceSettings.detail}</output>
+                <div className="source-feedback-card compact-source-metrics">
+                  <span className="status-label">Image</span>
+                  <strong>{rasterTraceAsset ? `${rasterTraceAsset.width} × ${rasterTraceAsset.height}` : 'No raster loaded'}</strong>
+                  <p className="source-feedback-copy">{rasterTraceAsset ? `${formatByteCount(rasterTraceAsset.bytes)} • ${rasterTraceAsset.mimeType || 'unknown type'}` : 'Load a raster file to inspect its size before tracing.'}</p>
+                </div>
               </div>
-            </label>
-            <label className="animation-field">
-              <span>Blur</span>
-              <div className="trace-range-row">
-                <input
-                  aria-label="Raster trace blur"
-                  type="range"
-                  min="0"
-                  max="5"
-                  step="1"
-                  value={rasterTraceSettings.blurRadius}
-                  onChange={(event) => updateRasterTraceSetting('blurRadius', Number(event.target.value))}
-                />
-                <output>{rasterTraceSettings.blurRadius}</output>
+              <div className="trace-preview-shell">
+                {rasterTraceAsset ? (
+                  <img className="trace-preview-image" src={rasterTraceAsset.dataUrl} alt={`Raster preview of ${rasterTraceAsset.fileName}`} />
+                ) : (
+                  <div className="empty-state trace-empty-state">
+                    <strong>Raster input</strong>
+                    <p>Queue a PNG, JPG, WebP, GIF, BMP, AVIF, or TIFF image to tune the trace before loading the SVG result into the editor.</p>
+                  </div>
+                )}
               </div>
-            </label>
-            <label className="animation-field">
-              <span>Noise filter</span>
-              <div className="trace-range-row">
-                <input
-                  aria-label="Raster trace noise filter"
-                  type="range"
-                  min="0"
-                  max="24"
-                  step="1"
-                  value={rasterTraceSettings.noiseFilter}
-                  onChange={(event) => updateRasterTraceSetting('noiseFilter', Number(event.target.value))}
-                />
-                <output>{rasterTraceSettings.noiseFilter}</output>
+              <div className="trace-field-grid">
+                <label className="animation-field animation-field-split">
+                  <span>Trace preset</span>
+                  <select aria-label="Trace preset" value={rasterTraceSettings.presetId} onChange={(event) => applyRasterTracePreset(event.target.value as RasterTracePresetId)}>
+                    {rasterTracePresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="animation-field animation-field-split">
+                  <span>Mode</span>
+                  <select aria-label="Raster trace mode" value={rasterTraceSettings.mode} onChange={(event) => updateRasterTraceSetting('mode', event.target.value as RasterTraceMode)}>
+                    <option value="color">Color</option>
+                    <option value="grayscale">Grayscale</option>
+                    <option value="monochrome">Monochrome</option>
+                  </select>
+                </label>
+                <label className="animation-field">
+                  <span>Colors</span>
+                  <div className="trace-range-row">
+                    <input
+                      aria-label="Raster trace color count"
+                      type="range"
+                      min="2"
+                      max="48"
+                      step="1"
+                      value={rasterTraceSettings.mode === 'monochrome' ? 2 : rasterTraceSettings.numberOfColors}
+                      onChange={(event) => updateRasterTraceSetting('numberOfColors', Number(event.target.value))}
+                      disabled={rasterTraceSettings.mode === 'monochrome'}
+                    />
+                    <output>{rasterTraceSettings.mode === 'monochrome' ? 2 : rasterTraceSettings.numberOfColors}</output>
+                  </div>
+                </label>
+                <label className="animation-field">
+                  <span>Threshold</span>
+                  <div className="trace-range-row">
+                    <input
+                      aria-label="Raster trace threshold"
+                      type="range"
+                      min="0"
+                      max="255"
+                      step="1"
+                      value={rasterTraceSettings.threshold}
+                      onChange={(event) => updateRasterTraceSetting('threshold', Number(event.target.value))}
+                      disabled={rasterTraceSettings.mode !== 'monochrome'}
+                    />
+                    <output>{rasterTraceSettings.threshold}</output>
+                  </div>
+                </label>
+                {shouldShowPhotoCleanupControls ? (
+                  <label className="selection-appearance-toggle trace-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label="Edge-preserving photo cleanup"
+                      checked={rasterTraceSettings.photoCleanup}
+                      onChange={(event) => updateRasterTraceSetting('photoCleanup', event.target.checked)}
+                    />
+                    Edge-preserving photo cleanup
+                  </label>
+                ) : null}
+                {shouldShowPhotoCleanupControls ? (
+                  <label className="animation-field">
+                    <span>Cleanup strength</span>
+                    <div className="trace-range-row">
+                      <input
+                        aria-label="Raster trace cleanup strength"
+                        type="range"
+                        min="1"
+                        max="3"
+                        step="1"
+                        value={rasterTraceSettings.photoCleanupStrength}
+                        onChange={(event) => updateRasterTraceSetting('photoCleanupStrength', Number(event.target.value))}
+                        disabled={!rasterTraceSettings.photoCleanup}
+                      />
+                      <output>{rasterTraceSettings.photoCleanupStrength}</output>
+                    </div>
+                  </label>
+                ) : null}
+                {shouldShowPosterizeControls ? (
+                  <label className="selection-appearance-toggle trace-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label="Posterize raster trace colors"
+                      checked={rasterTraceSettings.posterize}
+                      onChange={(event) => updateRasterTraceSetting('posterize', event.target.checked)}
+                    />
+                    Posterize before tracing
+                  </label>
+                ) : null}
+                {shouldShowPosterizeControls ? (
+                  <label className="animation-field">
+                    <span>Posterize levels</span>
+                    <div className="trace-range-row">
+                      <input
+                        aria-label="Raster trace posterize levels"
+                        type="range"
+                        min="2"
+                        max="12"
+                        step="1"
+                        value={rasterTraceSettings.posterizeLevels}
+                        onChange={(event) => updateRasterTraceSetting('posterizeLevels', Number(event.target.value))}
+                        disabled={!rasterTraceSettings.posterize}
+                      />
+                      <output>{rasterTraceSettings.posterizeLevels}</output>
+                    </div>
+                  </label>
+                ) : null}
+                <label className="selection-appearance-toggle trace-toggle">
+                  <input
+                    type="checkbox"
+                    aria-label="Remove traced white background"
+                    checked={rasterTraceSettings.removeBackground}
+                    onChange={(event) => updateRasterTraceSetting('removeBackground', event.target.checked)}
+                  />
+                  Remove traced white background
+                </label>
+                <label className="animation-field">
+                  <span>Detail</span>
+                  <div className="trace-range-row">
+                    <input
+                      aria-label="Raster trace detail"
+                      type="range"
+                      min="1"
+                      max="5"
+                      step="1"
+                      value={rasterTraceSettings.detail}
+                      onChange={(event) => updateRasterTraceSetting('detail', Number(event.target.value))}
+                    />
+                    <output>{rasterTraceSettings.detail}</output>
+                  </div>
+                </label>
+                <label className="animation-field">
+                  <span>Blur</span>
+                  <div className="trace-range-row">
+                    <input
+                      aria-label="Raster trace blur"
+                      type="range"
+                      min="0"
+                      max="5"
+                      step="1"
+                      value={rasterTraceSettings.blurRadius}
+                      onChange={(event) => updateRasterTraceSetting('blurRadius', Number(event.target.value))}
+                    />
+                    <output>{rasterTraceSettings.blurRadius}</output>
+                  </div>
+                </label>
+                <label className="animation-field">
+                  <span>Noise filter</span>
+                  <div className="trace-range-row">
+                    <input
+                      aria-label="Raster trace noise filter"
+                      type="range"
+                      min="0"
+                      max="24"
+                      step="1"
+                      value={rasterTraceSettings.noiseFilter}
+                      onChange={(event) => updateRasterTraceSetting('noiseFilter', Number(event.target.value))}
+                    />
+                    <output>{rasterTraceSettings.noiseFilter}</output>
+                  </div>
+                </label>
+                <label className="selection-appearance-toggle trace-toggle">
+                  <input
+                    type="checkbox"
+                    aria-label="Enhance raster trace corners"
+                    checked={rasterTraceSettings.enhanceCorners}
+                    onChange={(event) => updateRasterTraceSetting('enhanceCorners', event.target.checked)}
+                  />
+                  Enhance corners
+                </label>
               </div>
-            </label>
-            <label className="selection-appearance-toggle trace-toggle">
-              <input
-                type="checkbox"
-                aria-label="Enhance raster trace corners"
-                checked={rasterTraceSettings.enhanceCorners}
-                onChange={(event) => updateRasterTraceSetting('enhanceCorners', event.target.checked)}
-              />
-              Enhance corners
-            </label>
-          </div>
-          <p className="repair-note trace-preset-copy">{activeRasterTracePreset.description}</p>
-          {rasterTraceAssetLooksLikeJpeg ? (
-            <p className="repair-note trace-preset-copy">JPEG sources usually trace cleaner with posterization enabled and fewer colors, because compression noise gets flattened before vectorization.</p>
-          ) : null}
-          {rasterTraceSettings.removeBackground ? (
-            <p className="repair-note trace-preset-copy">Background removal only strips large near-white traced shapes that cover nearly the full canvas, so light foreground fills stay intact.</p>
-          ) : null}
-          <div className="animation-target-actions" role="toolbar" aria-label="Raster trace actions">
-            <button className="primary-button" type="button" onClick={() => void traceRasterIntoEditor()} disabled={!rasterTraceAsset || isTracingRaster}>
-              {isTracingRaster ? 'Tracing…' : 'Trace into editor'}
-            </button>
-            <button className="ghost-button" type="button" onClick={resetRasterTraceSettings}>
-              Reset settings
-            </button>
-          </div>
+              <p className="repair-note trace-preset-copy">{activeRasterTracePreset.description}</p>
+              {rasterTraceAssetLooksLikeJpeg ? (
+                <p className="repair-note trace-preset-copy">JPEG sources usually trace cleaner with posterization enabled and fewer colors, because compression noise gets flattened before vectorization.</p>
+              ) : null}
+              {rasterTraceSettings.removeBackground ? (
+                <p className="repair-note trace-preset-copy">Background removal only strips large near-white traced shapes that cover nearly the full canvas, so light foreground fills stay intact.</p>
+              ) : null}
+              <div className="animation-target-actions" role="toolbar" aria-label="Raster trace actions">
+                <button className="primary-button" type="button" onClick={() => void traceRasterIntoEditor()} disabled={!rasterTraceAsset || isTracingRaster}>
+                  {isTracingRaster ? 'Tracing…' : 'Trace into editor'}
+                </button>
+                <button className="ghost-button" type="button" onClick={resetRasterTraceSettings}>
+                  Reset settings
+                </button>
+              </div>
+            </div>
+          )}
           {rasterTraceMessage ? <p className="source-action-feedback">{rasterTraceMessage}</p> : null}
         </section>
 
@@ -3959,15 +4111,33 @@ function App() {
     return (
       <>
         <section className="status-card font-card section-card">
-          <p className="status-label">Font mapping</p>
-          <strong>Upload replacement fonts</strong>
+          <div className="section-header-inline" data-fit-container>
+            <div>
+              <p className="status-label">Font mapping</p>
+              <strong>Upload replacement fonts</strong>
+            </div>
+            {hasFontSupportTools ? (
+              <button
+                className="ghost-button selected-element-toggle"
+                type="button"
+                aria-expanded={isFontToolsExpanded}
+                onClick={() => setIsFontToolsExpanded((current) => !current)}
+              >
+                {isFontToolsExpanded ? 'Hide mappings' : 'Show mappings'}
+              </button>
+            ) : null}
+          </div>
           <p>Use local TTF, OTF, or WOFF files to convert text that references non-embedded fonts.</p>
           <div className="font-actions">
             <button className="ghost-button repair-button" type="button" onClick={() => fontInputRef.current?.click()}>
               Upload fonts
             </button>
           </div>
-          <div className="font-stack">
+          {!isFontToolsExpanded && hasFontSupportTools ? (
+            <p className="repair-note">Font family lists stay hidden until you need to resolve a text conversion mismatch.</p>
+          ) : null}
+          {(!hasFontSupportTools || isFontToolsExpanded) ? (
+            <div className="font-stack">
             {uploadedFonts.length > 0 ? (
               <div className="font-section">
                 <p className="font-section-title">Uploaded fonts</p>
@@ -3989,11 +4159,11 @@ function App() {
               <p className="repair-note">No uploaded fonts yet.</p>
             )}
 
-            {analysis && analysis.opportunities.referencedTextFamilies.length > 0 ? (
+            {referencedTextFamilies.length > 0 ? (
               <div className="font-section">
                 <p className="font-section-title">Referenced text families</p>
                 <ul className="font-list" aria-label="Referenced text families">
-                  {analysis.opportunities.referencedTextFamilies.map((fontReference) => (
+                  {referencedTextFamilies.map((fontReference) => (
                     <li key={fontReference.key} className="font-mapping-item">
                       <div className="font-mapping-copy">
                         <strong>{fontReference.label}</strong>
@@ -4025,12 +4195,14 @@ function App() {
             ) : (
               <p className="repair-note">No named text font families detected in this SVG.</p>
             )}
-          </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="status-card repair-card section-card">
           <p className="status-label">Repair actions</p>
-          <strong>Safe normalization</strong>
+          <strong>Guided cleanup</strong>
+          <p className="repair-note">Start with the broad safe pass, then open targeted repairs only when a file needs manual control.</p>
           <div className="repair-actions">
             <button
               className="primary-button repair-button"
@@ -4059,30 +4231,6 @@ function App() {
             <button
               className="ghost-button repair-button"
               type="button"
-              onClick={applyShapeNormalization}
-              disabled={!analysis || analysis.opportunities.primitiveShapeCount === 0}
-            >
-              Convert {analysis?.opportunities.primitiveShapeCount ?? 0} shape primitives to paths
-            </button>
-            <button
-              className="ghost-button repair-button"
-              type="button"
-              onClick={applyStrokeOutline}
-              disabled={!analysis || strokeOutlineCount === 0}
-            >
-              Outline {strokeOutlineCount} stroke-driven nodes
-            </button>
-            <button
-              className="ghost-button repair-button"
-              type="button"
-              onClick={applyPathCleanup}
-              disabled={!analysis || pathCleanupCount === 0}
-            >
-              Clean {pathCleanupCount} paths
-            </button>
-            <button
-              className="ghost-button repair-button"
-              type="button"
               onClick={applyReferenceCleanup}
               disabled={!analysis || referenceCleanupCount === 0}
             >
@@ -4096,87 +4244,127 @@ function App() {
             >
               Convert {analysis?.opportunities.convertibleTextCount ?? 0} text elements to paths
             </button>
-            <button
-              className="ghost-button repair-button"
-              type="button"
-              onClick={applyTransformBake}
-              disabled={!analysis || analysis.opportunities.directTransformCount === 0}
-            >
-              Bake {analysis?.opportunities.directTransformCount ?? 0} direct transforms
-            </button>
-            <button
-              className="ghost-button repair-button"
-              type="button"
-              onClick={applyContainerTransformBake}
-              disabled={!analysis || analysis.opportunities.bakeableContainerTransformCount === 0}
-            >
-              Bake {analysis?.opportunities.bakeableContainerTransformCount ?? 0} container transforms
-            </button>
-            <button
-              className="ghost-button repair-button"
-              type="button"
-              onClick={applyUseExpansion}
-              disabled={!analysis || analysis.opportunities.expandableUseCount === 0}
-            >
-              Expand {analysis?.opportunities.expandableUseCount ?? 0} use references
-            </button>
           </div>
-          <div className="repair-notes-stack">
-            <p className="repair-note">
-              {analysis
-                ? getTextConversionMessage(
-                    analysis.opportunities.convertibleTextCount,
-                    analysis.opportunities.blockedTextCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getStyleInliningMessage(
-                    analysis.opportunities.inlineableStyleRuleCount,
-                    analysis.opportunities.blockedStyleRuleCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getUseExpansionMessage(
-                    analysis.opportunities.expandableUseCount,
-                    analysis.opportunities.blockedUseCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getContainerTransformMessage(
-                    analysis.opportunities.bakeableContainerTransformCount,
-                    analysis.opportunities.blockedContainerTransformCount,
-                  )
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getPathCleanupMessage(pathCleanupCount)
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getReferenceCleanupMessage(referenceCleanupCount)
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? getStrokeOutlineMessage(strokeOutlineCount, blockedStrokeOutlineCount)
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-            <p className="repair-note">
-              {analysis
-                ? authoringCleanupCount > 0
-                  ? `${authoringCleanupCount} authoring metadata item${authoringCleanupCount === 1 ? '' : 's'} can be stripped without changing visible geometry.`
-                  : 'No editor-specific metadata cleanup is currently needed.'
-                : 'Load a valid SVG to see repair actions.'}
-            </p>
-          </div>
+          <button
+            className="ghost-button repair-button"
+            type="button"
+            aria-expanded={isAdvancedRepairToolsExpanded}
+            onClick={() => setIsAdvancedRepairToolsExpanded((current) => !current)}
+          >
+            {isAdvancedRepairToolsExpanded ? 'Hide targeted repairs' : 'Show targeted repairs'}
+          </button>
+          {isAdvancedRepairToolsExpanded ? (
+            <div className="section-disclosure-panel">
+              <div className="repair-actions">
+                <button
+                  className="ghost-button repair-button"
+                  type="button"
+                  onClick={applyShapeNormalization}
+                  disabled={!analysis || analysis.opportunities.primitiveShapeCount === 0}
+                >
+                  Convert {analysis?.opportunities.primitiveShapeCount ?? 0} shape primitives to paths
+                </button>
+                <button
+                  className="ghost-button repair-button"
+                  type="button"
+                  onClick={applyStrokeOutline}
+                  disabled={!analysis || strokeOutlineCount === 0}
+                >
+                  Outline {strokeOutlineCount} stroke-driven nodes
+                </button>
+                <button
+                  className="ghost-button repair-button"
+                  type="button"
+                  onClick={applyPathCleanup}
+                  disabled={!analysis || pathCleanupCount === 0}
+                >
+                  Clean {pathCleanupCount} paths
+                </button>
+                <button
+                  className="ghost-button repair-button"
+                  type="button"
+                  onClick={applyTransformBake}
+                  disabled={!analysis || analysis.opportunities.directTransformCount === 0}
+                >
+                  Bake {analysis?.opportunities.directTransformCount ?? 0} direct transforms
+                </button>
+                <button
+                  className="ghost-button repair-button"
+                  type="button"
+                  onClick={applyContainerTransformBake}
+                  disabled={!analysis || analysis.opportunities.bakeableContainerTransformCount === 0}
+                >
+                  Bake {analysis?.opportunities.bakeableContainerTransformCount ?? 0} container transforms
+                </button>
+                <button
+                  className="ghost-button repair-button"
+                  type="button"
+                  onClick={applyUseExpansion}
+                  disabled={!analysis || analysis.opportunities.expandableUseCount === 0}
+                >
+                  Expand {analysis?.opportunities.expandableUseCount ?? 0} use references
+                </button>
+              </div>
+              <div className="repair-notes-stack">
+                <p className="repair-note">
+                  {analysis
+                    ? getTextConversionMessage(
+                        analysis.opportunities.convertibleTextCount,
+                        analysis.opportunities.blockedTextCount,
+                      )
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? getStyleInliningMessage(
+                        analysis.opportunities.inlineableStyleRuleCount,
+                        analysis.opportunities.blockedStyleRuleCount,
+                      )
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? getUseExpansionMessage(
+                        analysis.opportunities.expandableUseCount,
+                        analysis.opportunities.blockedUseCount,
+                      )
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? getContainerTransformMessage(
+                        analysis.opportunities.bakeableContainerTransformCount,
+                        analysis.opportunities.blockedContainerTransformCount,
+                      )
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? getPathCleanupMessage(pathCleanupCount)
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? getReferenceCleanupMessage(referenceCleanupCount)
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? getStrokeOutlineMessage(strokeOutlineCount, blockedStrokeOutlineCount)
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+                <p className="repair-note">
+                  {analysis
+                    ? authoringCleanupCount > 0
+                      ? `${authoringCleanupCount} authoring metadata item${authoringCleanupCount === 1 ? '' : 's'} can be stripped without changing visible geometry.`
+                      : 'No editor-specific metadata cleanup is currently needed.'
+                    : 'Load a valid SVG to see repair actions.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="repair-note">Targeted geometry and reference tools are tucked away until the safe pass is not enough.</p>
+          )}
           {repairMessage ? <p className="repair-feedback">{repairMessage}</p> : null}
           {recentChangedNodes.length > 0 ? (
             <div className="repair-change-card">
@@ -4208,7 +4396,7 @@ function App() {
     return (
       <section className="focus-card export-card section-card">
         <h3>Export</h3>
-        <p className="export-copy">Choose an export preset and download or copy the resulting SVG directly from the browser, or render the selected preset into a PNG snapshot.</p>
+        <p className="export-copy">Choose an export preset and download, copy, or render that profile without keeping every export variant visible at once.</p>
         <div className="export-presets" role="tablist" aria-label="Export presets">
           {exportPresetCards.map((preset) => (
             <button
@@ -4235,56 +4423,70 @@ function App() {
           aria-labelledby={getExportPresetTabButtonId(selectedExportPreset)}
           tabIndex={0}
         >
-        <div className="export-actions two-column-actions">
-          <button className="ghost-button export-button" type="button" onClick={downloadCurrentSvg}>
-            Download current SVG
-          </button>
-          <button className="ghost-button export-button" type="button" onClick={() => void copyCurrentSvg()}>
-            Copy current SVG
-          </button>
-          <button
-            className="primary-button export-button"
-            type="button"
-            onClick={downloadSelectedPreset}
-            disabled={!canBuildExportVariant(selectedExportPreset)}
-          >
-            Download {getExportVariantLabel(selectedExportPreset)}
-          </button>
-          <button
-            className="primary-button export-button"
-            type="button"
-            onClick={() => void copySelectedPreset()}
-            disabled={!canBuildExportVariant(selectedExportPreset)}
-          >
-            Copy {getExportVariantLabel(selectedExportPreset)}
-          </button>
-          <button
-            className="ghost-button export-button"
-            type="button"
-            onClick={() => void downloadPngSnapshotVariant(selectedExportPreset)}
-            disabled={!canBuildExportVariant(selectedExportPreset)}
-          >
-            Download PNG snapshot
-          </button>
-        </div>
-        <ul className="tag-list compact export-list">
-          <li>
-            <span>Current file</span>
-            <strong>{buildExportFileName(fileName, 'current')}</strong>
-          </li>
-          <li>
-            <span>Browser/runtime preset</span>
-            <strong>{buildExportFileName(fileName, 'runtime')}</strong>
-          </li>
-          <li>
-            <span>Geometry-safe preset</span>
-            <strong>{buildExportFileName(fileName, 'safe')}</strong>
-          </li>
-          <li>
-            <span>Blender preset</span>
-            <strong>{buildExportFileName(fileName, 'blender')}</strong>
-          </li>
-        </ul>
+          <div className="export-actions">
+            <button
+              className="primary-button export-button"
+              type="button"
+              onClick={downloadSelectedPreset}
+              disabled={!canBuildExportVariant(selectedExportPreset)}
+            >
+              Download {getExportVariantLabel(selectedExportPreset)}
+            </button>
+            <button
+              className="primary-button export-button"
+              type="button"
+              onClick={() => void copySelectedPreset()}
+              disabled={!canBuildExportVariant(selectedExportPreset)}
+            >
+              Copy {getExportVariantLabel(selectedExportPreset)}
+            </button>
+            <button
+              className="ghost-button export-button"
+              type="button"
+              onClick={() => void downloadPngSnapshotVariant(selectedExportPreset)}
+              disabled={!canBuildExportVariant(selectedExportPreset)}
+            >
+              Download PNG snapshot
+            </button>
+            <button
+              className="ghost-button export-button"
+              type="button"
+              aria-expanded={isExportDetailsExpanded}
+              onClick={() => setIsExportDetailsExpanded((current) => !current)}
+            >
+              {isExportDetailsExpanded ? 'Hide current-source actions and file names' : 'Show current-source actions and file names'}
+            </button>
+          </div>
+          {isExportDetailsExpanded ? (
+            <div className="section-disclosure-panel">
+              <div className="export-actions two-column-actions">
+                <button className="ghost-button export-button" type="button" onClick={downloadCurrentSvg}>
+                  Download current SVG
+                </button>
+                <button className="ghost-button export-button" type="button" onClick={() => void copyCurrentSvg()}>
+                  Copy current SVG
+                </button>
+              </div>
+              <ul className="tag-list compact export-list">
+                <li>
+                  <span>Current file</span>
+                  <strong>{buildExportFileName(fileName, 'current')}</strong>
+                </li>
+                <li>
+                  <span>Browser/runtime preset</span>
+                  <strong>{buildExportFileName(fileName, 'runtime')}</strong>
+                </li>
+                <li>
+                  <span>Geometry-safe preset</span>
+                  <strong>{buildExportFileName(fileName, 'safe')}</strong>
+                </li>
+                <li>
+                  <span>Blender preset</span>
+                  <strong>{buildExportFileName(fileName, 'blender')}</strong>
+                </li>
+              </ul>
+            </div>
+          ) : null}
         {exportReport ? (
           <div className="export-report">
             <div className="export-report-heading">
@@ -4729,23 +4931,6 @@ function App() {
             </section>
 
             <section className="focus-card section-card">
-              <h3>Top elements</h3>
-              <ul className="tag-list compact">
-                {topTags.length > 0 ? topTags.map(([tag, count]) => (
-                  <li key={tag}>
-                    <span>{tag}</span>
-                    <strong>{count}</strong>
-                  </li>
-                )) : (
-                  <li>
-                    <span>No parsed elements yet</span>
-                    <strong>0</strong>
-                  </li>
-                )}
-              </ul>
-            </section>
-
-            <section className="focus-card section-card">
               <h3>Featured tags</h3>
               <ul className="tag-list compact">
                 {featuredTags.map((tag) => (
@@ -4758,96 +4943,147 @@ function App() {
             </section>
 
             <section className="focus-card section-card">
-              <h3>Runtime features</h3>
+              <div className="section-header-inline" data-fit-container>
+                <div>
+                  <h3>Structure inventory</h3>
+                  <p className="section-copy">Runtime behavior, defs, references, and authoring metadata are hidden until you need a deeper inspection pass.</p>
+                </div>
+                <button
+                  className="ghost-button selected-element-toggle"
+                  type="button"
+                  aria-expanded={isOverviewInventoryExpanded}
+                  onClick={() => setIsOverviewInventoryExpanded((current) => !current)}
+                >
+                  {isOverviewInventoryExpanded ? 'Hide inventory details' : 'Show inventory details'}
+                </button>
+              </div>
               <ul className="tag-list compact">
                 <li>
-                  <span>Animations</span>
-                  <strong>{analysis?.runtimeFeatures.animationElementCount ?? 0}</strong>
+                  <span>Runtime features</span>
+                  <strong>{runtimeFeatureCount}</strong>
                 </li>
                 <li>
-                  <span>Media</span>
-                  <strong>{analysis?.runtimeFeatures.mediaElementCount ?? 0}</strong>
+                  <span>Defs and refs</span>
+                  <strong>{referenceInventoryCount}</strong>
                 </li>
                 <li>
-                  <span>Links</span>
-                  <strong>{analysis?.runtimeFeatures.linkElementCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Local refs</span>
-                  <strong>{analysis?.runtimeFeatures.localReferenceCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>External refs</span>
-                  <strong>{analysis?.runtimeFeatures.externalReferenceCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Profile</span>
-                  <strong>{analysis?.runtimeFeatures.baseProfile ?? 'full'}</strong>
+                  <span>Authoring metadata</span>
+                  <strong>{authoringCleanupCount}</strong>
                 </li>
               </ul>
-            </section>
+              {isOverviewInventoryExpanded ? (
+                <div className="section-disclosure-panel">
+                  <section className="focus-card section-card nested-card">
+                    <h3>Top elements</h3>
+                    <ul className="tag-list compact">
+                      {topTags.length > 0 ? topTags.map(([tag, count]) => (
+                        <li key={tag}>
+                          <span>{tag}</span>
+                          <strong>{count}</strong>
+                        </li>
+                      )) : (
+                        <li>
+                          <span>No parsed elements yet</span>
+                          <strong>0</strong>
+                        </li>
+                      )}
+                    </ul>
+                  </section>
 
-            <section className="focus-card section-card">
-              <h3>Defs and references</h3>
-              <ul className="tag-list compact">
-                <li>
-                  <span>Defs</span>
-                  <strong>{analysis?.inventory.defsCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Gradients</span>
-                  <strong>{((analysis?.inventory.linearGradientCount ?? 0) + (analysis?.inventory.radialGradientCount ?? 0))}</strong>
-                </li>
-                <li>
-                  <span>Gradient stops</span>
-                  <strong>{analysis?.inventory.stopCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Style blocks</span>
-                  <strong>{analysis?.inventory.styleBlockCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Use refs</span>
-                  <strong>{analysis?.inventory.useCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>External refs</span>
-                  <strong>{analysis?.inventory.externalReferenceCount ?? 0}</strong>
-                </li>
-              </ul>
-            </section>
+                  <section className="focus-card section-card nested-card">
+                    <h3>Runtime features</h3>
+                    <ul className="tag-list compact">
+                      <li>
+                        <span>Animations</span>
+                        <strong>{analysis?.runtimeFeatures.animationElementCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Media</span>
+                        <strong>{analysis?.runtimeFeatures.mediaElementCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Links</span>
+                        <strong>{analysis?.runtimeFeatures.linkElementCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Local refs</span>
+                        <strong>{analysis?.runtimeFeatures.localReferenceCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>External refs</span>
+                        <strong>{analysis?.runtimeFeatures.externalReferenceCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Profile</span>
+                        <strong>{analysis?.runtimeFeatures.baseProfile ?? 'full'}</strong>
+                      </li>
+                    </ul>
+                  </section>
 
-            <section className="focus-card section-card">
-              <h3>Authoring metadata</h3>
-              <ul className="tag-list compact">
-                <li>
-                  <span>Metadata nodes</span>
-                  <strong>{analysis?.authoringMetadata.metadataElementCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Namespaced nodes</span>
-                  <strong>{analysis?.authoringMetadata.namespacedNodeCount ?? 0}</strong>
-                </li>
-                <li>
-                  <span>Namespaced attrs</span>
-                  <strong>{analysis?.authoringMetadata.namespacedAttributeCount ?? 0}</strong>
-                </li>
-              </ul>
-              <ul className="warning-list compact-note-list">
-                {analysis && analysis.authoringMetadata.namespaceCounts.length > 0 ? (
-                  analysis.authoringMetadata.namespaceCounts.map((entry) => (
-                    <li key={entry.prefix}>
-                      <span>{entry.prefix}</span>
-                      <strong>{entry.count}</strong>
-                    </li>
-                  ))
-                ) : (
-                  <li>
-                    <span>No authoring-specific namespace usage detected.</span>
-                    <strong>0</strong>
-                  </li>
-                )}
-              </ul>
+                  <section className="focus-card section-card nested-card">
+                    <h3>Defs and references</h3>
+                    <ul className="tag-list compact">
+                      <li>
+                        <span>Defs</span>
+                        <strong>{analysis?.inventory.defsCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Gradients</span>
+                        <strong>{((analysis?.inventory.linearGradientCount ?? 0) + (analysis?.inventory.radialGradientCount ?? 0))}</strong>
+                      </li>
+                      <li>
+                        <span>Gradient stops</span>
+                        <strong>{analysis?.inventory.stopCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Style blocks</span>
+                        <strong>{analysis?.inventory.styleBlockCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Use refs</span>
+                        <strong>{analysis?.inventory.useCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>External refs</span>
+                        <strong>{analysis?.inventory.externalReferenceCount ?? 0}</strong>
+                      </li>
+                    </ul>
+                  </section>
+
+                  <section className="focus-card section-card nested-card">
+                    <h3>Authoring metadata</h3>
+                    <ul className="tag-list compact">
+                      <li>
+                        <span>Metadata nodes</span>
+                        <strong>{analysis?.authoringMetadata.metadataElementCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Namespaced nodes</span>
+                        <strong>{analysis?.authoringMetadata.namespacedNodeCount ?? 0}</strong>
+                      </li>
+                      <li>
+                        <span>Namespaced attrs</span>
+                        <strong>{analysis?.authoringMetadata.namespacedAttributeCount ?? 0}</strong>
+                      </li>
+                    </ul>
+                    <ul className="warning-list compact-note-list">
+                      {analysis && analysis.authoringMetadata.namespaceCounts.length > 0 ? (
+                        analysis.authoringMetadata.namespaceCounts.map((entry) => (
+                          <li key={entry.prefix}>
+                            <span>{entry.prefix}</span>
+                            <strong>{entry.count}</strong>
+                          </li>
+                        ))
+                      ) : (
+                        <li>
+                          <span>No authoring-specific namespace usage detected.</span>
+                          <strong>0</strong>
+                        </li>
+                      )}
+                    </ul>
+                  </section>
+                </div>
+              ) : null}
             </section>
           </div>
         );

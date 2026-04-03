@@ -1,17 +1,66 @@
 :root {
   color-scheme: light;
-  font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color: #13262f;
-  background:
+  --app-text: #13262f;
+  --app-muted: #5f5751;
+  --app-accent: #1f7a8c;
+  --app-accent-strong: #0f5c69;
+  --app-bg:
     radial-gradient(circle at top left, rgba(255, 138, 61, 0.24), transparent 28%),
     radial-gradient(circle at right 10% bottom 10%, rgba(31, 122, 140, 0.18), transparent 30%),
     linear-gradient(180deg, #f7f2ea 0%, #efe6da 100%);
+  --panel-bg: rgba(255, 250, 244, 0.76);
+  --panel-strong-bg: rgba(255, 255, 255, 0.78);
+  --panel-soft-bg: rgba(247, 242, 234, 0.9);
+  --panel-elevated-bg: rgba(255, 255, 255, 0.72);
+  --panel-border: rgba(19, 38, 47, 0.08);
+  --panel-shadow: 0 18px 60px rgba(19, 38, 47, 0.08);
+  --button-primary-bg: #13262f;
+  --button-primary-text: #f7f2ea;
+  --button-ghost-bg: rgba(255, 255, 255, 0.55);
+  --button-ghost-border: rgba(19, 38, 47, 0.12);
+  --overlay-bg: rgba(19, 38, 47, 0.88);
+  --overlay-text: #f7f2ea;
+  --overlay-muted: rgba(247, 242, 234, 0.78);
+  --input-bg: rgba(255, 255, 255, 0.9);
+  --checker-light: rgba(255, 255, 255, 0.95);
+  --checker-dark: rgba(247, 242, 234, 0.95);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--app-text);
+  background: var(--app-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --app-text: #e6edf2;
+  --app-muted: #aab8c2;
+  --app-accent: #7ad3e1;
+  --app-accent-strong: #99e3ef;
+  --app-bg:
+    radial-gradient(circle at top left, rgba(255, 138, 61, 0.18), transparent 24%),
+    radial-gradient(circle at right 12% bottom 12%, rgba(31, 122, 140, 0.16), transparent 28%),
+    linear-gradient(180deg, #10181d 0%, #0a1014 100%);
+  --panel-bg: rgba(15, 24, 29, 0.84);
+  --panel-strong-bg: rgba(20, 31, 38, 0.88);
+  --panel-soft-bg: rgba(24, 37, 45, 0.88);
+  --panel-elevated-bg: rgba(24, 37, 45, 0.78);
+  --panel-border: rgba(141, 174, 194, 0.18);
+  --panel-shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+  --button-primary-bg: #e6edf2;
+  --button-primary-text: #0f181d;
+  --button-ghost-bg: rgba(24, 37, 45, 0.9);
+  --button-ghost-border: rgba(141, 174, 194, 0.16);
+  --overlay-bg: rgba(8, 13, 16, 0.9);
+  --overlay-text: #edf4f7;
+  --overlay-muted: rgba(230, 237, 242, 0.76);
+  --input-bg: rgba(15, 24, 29, 0.92);
+  --checker-light: rgba(21, 34, 41, 0.96);
+  --checker-dark: rgba(13, 21, 26, 0.96);
 }
 
 * {
@@ -66,7 +115,7 @@ textarea {
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-size: 0.72rem;
-  color: #1f7a8c;
+  color: var(--app-accent);
 }
 
 .topbar-actions {
@@ -127,7 +176,7 @@ textarea {
 .resources-modal-copy {
   margin: 0;
   max-width: 48rem;
-  color: #5f5751;
+  color: var(--app-muted);
 }
 
 .resources-grid {
@@ -142,8 +191,8 @@ textarea {
   min-width: 0;
   padding: 16px;
   border-radius: 22px;
-  border: 1px solid rgba(19, 38, 47, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(247, 242, 234, 0.94));
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, var(--panel-strong-bg), var(--panel-soft-bg));
   color: inherit;
   text-decoration: none;
   box-shadow: 0 16px 36px rgba(19, 38, 47, 0.08);
@@ -163,7 +212,7 @@ textarea {
 
 .resource-card span,
 .resource-card small {
-  color: #5f5751;
+  color: var(--app-muted);
 }
 
 .resource-card-kicker {
@@ -175,8 +224,8 @@ textarea {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  background: rgba(31, 122, 140, 0.1);
-  color: #1f7a8c;
+  background: color-mix(in srgb, var(--app-accent) 14%, transparent);
+  color: var(--app-accent);
 }
 
 .topbar-workflow-bar {
@@ -195,13 +244,14 @@ textarea {
 }
 
 .primary-button {
-  background: #13262f;
-  color: #f7f2ea;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
 }
 
 .ghost-button {
-  background: rgba(255, 255, 255, 0.55);
-  border-color: rgba(19, 38, 47, 0.12);
+  background: var(--button-ghost-bg);
+  border-color: var(--button-ghost-border);
+  color: var(--app-text);
 }
 
 .workspace-grid {
@@ -219,10 +269,16 @@ textarea {
 
 .workspace-stage {
   --inspector-panel-width: 56px;
+  --inspector-panel-clearance: 0px;
   position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
+  padding-right: var(--inspector-panel-clearance);
+}
+
+.workspace-stage.inspector-collapsed {
+  --inspector-panel-clearance: 68px;
 }
 
 .workspace-stage.inspector-quarter {
@@ -234,10 +290,10 @@ textarea {
 }
 
 .panel {
-  background: rgba(255, 250, 244, 0.76);
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   border-radius: 28px;
-  box-shadow: 0 18px 60px rgba(19, 38, 47, 0.08);
+  box-shadow: var(--panel-shadow);
   backdrop-filter: blur(18px);
   display: flex;
   flex-direction: column;
@@ -273,9 +329,9 @@ textarea {
   height: 38px;
   flex: 0 0 auto;
   border-radius: 12px;
-  border: 1px solid rgba(19, 38, 47, 0.08);
-  background: rgba(255, 255, 255, 0.72);
-  color: #13262f;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-elevated-bg);
+  color: var(--app-text);
   cursor: pointer;
 }
 
@@ -337,8 +393,8 @@ textarea {
   align-items: center;
   gap: 10px;
   text-align: left;
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(19, 38, 47, 0.08);
+  background: var(--panel-elevated-bg);
+  border-color: var(--panel-border);
 }
 
 .tool-item-short {
@@ -348,7 +404,7 @@ textarea {
   width: 30px;
   height: 30px;
   border-radius: 10px;
-  background: rgba(19, 38, 47, 0.08);
+  background: color-mix(in srgb, var(--app-text) 10%, transparent);
   font-size: 0.8rem;
   font-weight: 700;
 }
@@ -361,7 +417,7 @@ textarea {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c746d;
+  color: var(--app-muted);
 }
 
 .tool-item.disabled {
@@ -376,8 +432,8 @@ textarea {
 
 .tool-item.active,
 .preview-tab.active {
-  background: #13262f;
-  color: #f7f2ea;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
 }
 
 .tool-item.active .tool-item-short,
@@ -387,7 +443,7 @@ textarea {
 
 .preview-tab:focus-visible,
 .export-preset:focus-visible {
-  outline: 2px solid #1f7a8c;
+  outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
 
@@ -395,8 +451,8 @@ textarea {
 .focus-card,
 .mode-card {
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(19, 38, 47, 0.06);
+  background: var(--panel-strong-bg);
+  border: 1px solid var(--panel-border);
 }
 
 .status-card {
@@ -518,8 +574,17 @@ textarea {
 }
 
 .repair-feedback {
-  color: #1f7a8c;
+  color: var(--app-accent);
   font-weight: 600;
+}
+
+.section-disclosure-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.nested-card {
+  margin: 0;
 }
 
 .repair-change-card {
@@ -590,8 +655,8 @@ textarea {
   gap: 10px;
   padding: 14px;
   border-radius: 18px;
-  background: rgba(247, 242, 234, 0.9);
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: var(--panel-soft-bg);
+  border: 1px solid var(--panel-border);
   min-width: 0;
 }
 
@@ -600,7 +665,7 @@ textarea {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c746d;
+  color: var(--app-muted);
 }
 
 .readiness-score {
@@ -644,8 +709,8 @@ textarea {
   gap: 4px;
   text-align: left;
   border-radius: 18px;
-  border: 1px solid rgba(19, 38, 47, 0.08);
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-elevated-bg);
   padding: 12px 14px;
   cursor: pointer;
 }
@@ -655,8 +720,8 @@ textarea {
 }
 
 .export-preset.active {
-  background: rgba(19, 38, 47, 0.92);
-  color: #f7f2ea;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
 }
 
 .export-preset strong {
@@ -683,8 +748,8 @@ textarea {
   margin-top: 14px;
   padding: 14px;
   border-radius: 18px;
-  background: rgba(247, 242, 234, 0.9);
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: var(--panel-soft-bg);
+  border: 1px solid var(--panel-border);
 }
 
 .export-report-heading {
@@ -703,7 +768,7 @@ textarea {
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c746d;
+  color: var(--app-muted);
 }
 
 .export-report-list {
@@ -743,7 +808,7 @@ textarea {
 
 .source-action-feedback {
   margin: 12px 0 0;
-  color: #1f7a8c;
+  color: var(--app-accent);
   font-weight: 600;
 }
 
@@ -771,9 +836,9 @@ textarea {
   min-height: 180px;
   padding: 14px;
   border-radius: 22px;
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  border: 1px solid var(--panel-border);
   background:
-    linear-gradient(45deg, rgba(247, 242, 234, 0.95) 25%, rgba(255, 255, 255, 0.95) 25%, rgba(255, 255, 255, 0.95) 50%, rgba(247, 242, 234, 0.95) 50%, rgba(247, 242, 234, 0.95) 75%, rgba(255, 255, 255, 0.95) 75%, rgba(255, 255, 255, 0.95));
+    linear-gradient(45deg, var(--checker-dark) 25%, var(--checker-light) 25%, var(--checker-light) 50%, var(--checker-dark) 50%, var(--checker-dark) 75%, var(--checker-light) 75%, var(--checker-light));
   background-size: 24px 24px;
 }
 
@@ -801,7 +866,7 @@ textarea {
   min-width: 2.5rem;
   text-align: right;
   font-weight: 700;
-  color: #13262f;
+  color: var(--app-text);
 }
 
 .trace-toggle {
@@ -818,8 +883,8 @@ textarea {
   gap: 8px;
   padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(247, 242, 234, 0.9);
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: var(--panel-soft-bg);
+  border: 1px solid var(--panel-border);
 }
 
 .compact-source-metrics {
@@ -832,7 +897,7 @@ textarea {
 
 .source-feedback-copy {
   margin: 0;
-  color: #6d655f;
+  color: var(--app-muted);
   font-size: 0.84rem;
 }
 
@@ -841,11 +906,11 @@ textarea {
   min-height: 0;
   flex: 1;
   resize: none;
-  border: 1px solid rgba(19, 38, 47, 0.1);
+  border: 1px solid var(--panel-border);
   border-radius: 22px;
   padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #13262f;
+  background: var(--input-bg);
+  color: var(--app-text);
   font-family: "IBM Plex Mono", "Consolas", monospace;
   font-size: 0.87rem;
   line-height: 1.6;
@@ -1136,15 +1201,15 @@ textarea {
   justify-content: space-between;
   gap: 18px;
   padding: 16px 18px;
-  background: rgba(19, 38, 47, 0.88);
-  color: #f7f2ea;
+  background: var(--overlay-bg);
+  color: var(--overlay-text);
   border-radius: 22px;
 }
 
 .preview-overlay p {
   max-width: 440px;
   margin: 0;
-  color: rgba(247, 242, 234, 0.78);
+  color: var(--overlay-muted);
 }
 
 .timeline-control-group {
@@ -1204,8 +1269,8 @@ textarea {
   min-width: 0;
   padding: 4px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: var(--panel-elevated-bg);
+  border: 1px solid var(--panel-border);
   overflow: hidden;
 }
 
@@ -1215,7 +1280,7 @@ textarea {
   border: 0;
   border-radius: 14px;
   background: transparent;
-  color: #6d655f;
+  color: var(--app-muted);
   font: inherit;
   font-weight: 600;
   line-height: 1.2;
@@ -1226,13 +1291,13 @@ textarea {
 }
 
 .inspector-tab.active {
-  background: #13262f;
-  color: #f7f2ea;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
   box-shadow: 0 8px 18px rgba(19, 38, 47, 0.14);
 }
 
 .inspector-tab:focus-visible {
-  outline: 2px solid #1f7a8c;
+  outline: 2px solid var(--app-accent);
   outline-offset: -2px;
 }
 
@@ -1262,14 +1327,14 @@ textarea {
 .metrics-grid div {
   padding: 12px;
   border-radius: 18px;
-  background: rgba(247, 242, 234, 0.9);
+  background: var(--panel-soft-bg);
 }
 
 .metrics-grid dt {
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c746d;
+  color: var(--app-muted);
 }
 
 .metrics-grid dd {
@@ -1318,8 +1383,8 @@ textarea {
   display: inline-flex;
   padding: 0.24rem 0.55rem;
   border-radius: 999px;
-  background: rgba(31, 122, 140, 0.12);
-  color: #1f7a8c;
+  background: color-mix(in srgb, var(--app-accent) 14%, transparent);
+  color: var(--app-accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.75rem;
@@ -1333,15 +1398,15 @@ textarea {
 .selection-collapsed-note {
   padding: 10px 12px;
   border-radius: 14px;
-  background: rgba(247, 242, 234, 0.7);
-  border: 1px solid rgba(19, 38, 47, 0.08);
+  background: var(--panel-soft-bg);
+  border: 1px solid var(--panel-border);
 }
 
 .selection-facet-tabs {
-  display: grid;
+  border: 1px solid var(--panel-border);
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  align-items: end;
+  background: var(--panel-soft-bg);
+  color: var(--app-muted);
   padding: 6px 6px 0;
   border-bottom: 1px solid rgba(19, 38, 47, 0.12);
 }
@@ -1358,10 +1423,42 @@ textarea {
 }
 
 .selection-facet-tab.active {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(19, 38, 47, 0.14);
-  color: #13262f;
+  background: var(--panel-strong-bg);
+  border-color: var(--panel-border);
+  color: var(--app-text);
   transform: translateY(1px);
+}
+
+.theme-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.theme-choice-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-elevated-bg);
+  color: var(--app-text);
+}
+
+.theme-choice-card span {
+  color: var(--app-muted);
+  font-size: 0.86rem;
+}
+
+.theme-choice-card.active {
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.theme-choice-card.active span {
+  color: color-mix(in srgb, var(--button-primary-text) 76%, transparent);
 }
 
 .selection-facet-panel {
@@ -2307,6 +2404,7 @@ textarea {
   .workspace-stage {
     display: grid;
     gap: 18px;
+    padding-right: 0;
   }
 
   .inspector-panel {

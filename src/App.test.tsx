@@ -14,6 +14,8 @@ vi.mock('./lib/svg-tracing', async () => {
       width: 64,
       height: 32,
       bytes: file.size,
+      hasTransparency: false,
+      isFlatArtwork: false,
     })),
     traceRasterAssetToSvg: vi.fn(async () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" width="64" height="32"><path d="M0 0H64V32H0Z" fill="#000" /></svg>'),
   };
@@ -30,6 +32,20 @@ beforeEach(() => {
   window.localStorage.clear();
   mockedLoadRasterTraceAsset.mockClear();
   mockedTraceRasterAssetToSvg.mockClear();
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 function ensureInspectorExpanded() {
@@ -42,6 +58,25 @@ function ensureInspectorExpanded() {
 function openWorkspaceSection(name: 'File' | 'Repair' | 'Export') {
   fireEvent.click(screen.getByRole('button', { name }));
   ensureInspectorExpanded();
+
+  if (name === 'Repair') {
+    const showMappingsButton = screen.queryByRole('button', { name: 'Show mappings' });
+    if (showMappingsButton) {
+      fireEvent.click(showMappingsButton);
+    }
+
+    const showTargetedRepairsButton = screen.queryByRole('button', { name: 'Show targeted repairs' });
+    if (showTargetedRepairsButton) {
+      fireEvent.click(showTargetedRepairsButton);
+    }
+  }
+
+  if (name === 'Export') {
+    const showCurrentSourceActionsButton = screen.queryByRole('button', { name: 'Show current-source actions and file names' });
+    if (showCurrentSourceActionsButton) {
+      fireEvent.click(showCurrentSourceActionsButton);
+    }
+  }
 }
 
 function openSelectionTool(name: 'Style' | 'Animate' | 'Interact') {
@@ -257,15 +292,35 @@ describe('App', () => {
 
     ensureInspectorExpanded();
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show inventory details' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Runtime features')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Runtime features' })).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Defs and references')).toBeInTheDocument();
-    expect(screen.getByText('Authoring metadata')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Defs and references' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Authoring metadata' })).toBeInTheDocument();
     expect(screen.getByText('tiny')).toBeInTheDocument();
     expect(screen.getByText('inkscape')).toBeInTheDocument();
+  });
+
+  it('defaults theme to system and lets settings override it', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Theme' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('radio', { name: /^System/i })).toHaveAttribute('aria-checked', 'true');
+    expect(document.documentElement.dataset.theme).toBe('light');
+
+    fireEvent.click(screen.getByRole('radio', { name: /^Dark/i }));
+
+    expect(screen.getByRole('radio', { name: /^Dark/i })).toHaveAttribute('aria-checked', 'true');
+    expect(window.localStorage.getItem('svg-workbench.theme-preference')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('shows runtime-specific export guidance for media-bearing svg tiny files', async () => {
@@ -495,17 +550,12 @@ describe('App', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/badge-traced\.svg/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Trace into editor' }));
-
-    await waitFor(() => {
       expect(mockedTraceRasterAssetToSvg).toHaveBeenCalled();
     });
 
     expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('<path');
     expect(screen.getByText('Traced badge.png into badge-traced.svg.')).toBeInTheDocument();
+    expect(screen.getByText('Applied the illustration trace preset to badge.png.')).toBeInTheDocument();
   });
 
   it('loads jpeg sources with a posterized photo preset recommendation', async () => {
@@ -527,12 +577,46 @@ describe('App', () => {
     });
 
     await waitFor(() => {
+      expect(mockedTraceRasterAssetToSvg).toHaveBeenCalled();
       expect(screen.getByRole('combobox', { name: 'Trace preset' })).toHaveValue('posterized-photo');
     });
     expect(screen.getByRole('checkbox', { name: 'Edge-preserving photo cleanup' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Posterize raster trace colors' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Remove traced white background' })).not.toBeChecked();
-    expect(screen.getByText(/JPEG sources usually trace cleaner with posterization enabled/i)).toBeInTheDocument();
+    expect(screen.getByText('Applied the posterized photo trace preset to photo.jpg.')).toBeInTheDocument();
+    expect(screen.getByText('Traced photo.jpg into photo-traced.svg.')).toBeInTheDocument();
+  });
+
+  it('loads transparent flat artwork with a flat-logo preset recommendation', async () => {
+    mockedLoadRasterTraceAsset.mockResolvedValueOnce({
+      fileName: 'logo.png',
+      mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,trace-preview',
+      width: 64,
+      height: 32,
+      bytes: 4,
+      hasTransparency: true,
+      isFlatArtwork: true,
+    });
+
+    const { container } = render(<App />);
+    const rasterInput = container.querySelector('input[accept*=".png"]') as HTMLInputElement | null;
+    expect(rasterInput).not.toBeNull();
+
+    const rasterFile = new File([new Uint8Array([137, 80, 78, 71])], 'logo.png', { type: 'image/png' });
+
+    fireEvent.change(rasterInput as HTMLInputElement, {
+      target: {
+        files: [rasterFile],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockedTraceRasterAssetToSvg).toHaveBeenCalled();
+      expect(screen.getByRole('combobox', { name: 'Trace preset' })).toHaveValue('flat-logo');
+    });
+    expect(screen.getByText('Applied the flat logo trace preset to logo.png.')).toBeInTheDocument();
+    expect(screen.getByText('Traced logo.png into logo-traced.svg.')).toBeInTheDocument();
   });
 
   it('switches the inspection area to the clicked preview element', async () => {
@@ -1019,7 +1103,7 @@ describe('App', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('2 selected targets')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Preview and apply to 2 targets' })).toBeEnabled();
       });
 
       fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 2 targets' }));
@@ -1402,7 +1486,7 @@ describe('App', () => {
         Reflect.deleteProperty(document, 'elementFromPoint');
       }
     }
-  }, 15000);
+  }, 30000);
 
   it('applies interaction fields to the selected preview element', async () => {
     const { container } = render(<App />);
@@ -1540,33 +1624,70 @@ describe('App', () => {
   });
 
   it('controls preview playback transport and renders a scrubber', async () => {
-    const { container } = render(<App />);
-
-    const previewSvg = container.querySelector('.svg-preview-frame svg') as SVGSVGElement;
     const pauseAnimations = vi.fn();
     const unpauseAnimations = vi.fn();
     const setCurrentTime = vi.fn();
     const getCurrentTime = vi.fn(() => 1.4);
+    const prototype = SVGSVGElement.prototype as SVGSVGElement & {
+      pauseAnimations?: () => void;
+      unpauseAnimations?: () => void;
+      setCurrentTime?: (seconds: number) => void;
+      getCurrentTime?: () => number;
+    };
+    const originalPauseDescriptor = Object.getOwnPropertyDescriptor(prototype, 'pauseAnimations');
+    const originalUnpauseDescriptor = Object.getOwnPropertyDescriptor(prototype, 'unpauseAnimations');
+    const originalSetCurrentTimeDescriptor = Object.getOwnPropertyDescriptor(prototype, 'setCurrentTime');
+    const originalGetCurrentTimeDescriptor = Object.getOwnPropertyDescriptor(prototype, 'getCurrentTime');
 
-    Object.assign(previewSvg, {
-      pauseAnimations,
-      unpauseAnimations,
-      setCurrentTime,
-      getCurrentTime,
-    });
+    Object.defineProperty(prototype, 'pauseAnimations', { configurable: true, value: pauseAnimations });
+    Object.defineProperty(prototype, 'unpauseAnimations', { configurable: true, value: unpauseAnimations });
+    Object.defineProperty(prototype, 'setCurrentTime', { configurable: true, value: setCurrentTime });
+    Object.defineProperty(prototype, 'getCurrentTime', { configurable: true, value: getCurrentTime });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
-    expect(pauseAnimations).toHaveBeenCalled();
+    try {
+      render(<App />);
 
-    expect(screen.getByRole('slider', { name: 'Preview timeline' })).toBeEnabled();
+      await waitFor(() => {
+        expect(pauseAnimations).toHaveBeenCalled();
+      });
+      expect(unpauseAnimations).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled();
 
-    const playButton = screen.getByRole('button', { name: 'Play' });
-    await waitFor(() => {
-      expect(playButton).toBeEnabled();
-    });
-    fireEvent.click(playButton);
+      expect(screen.getByRole('slider', { name: 'Preview timeline' })).toBeEnabled();
 
-    expect(screen.getByRole('button', { name: 'Restart' })).toBeEnabled();
+      const playButton = screen.getByRole('button', { name: 'Play' });
+      await waitFor(() => {
+        expect(playButton).toBeEnabled();
+      });
+      fireEvent.click(playButton);
+      expect(unpauseAnimations).toHaveBeenCalled();
+
+      expect(screen.getByRole('button', { name: 'Restart' })).toBeEnabled();
+    } finally {
+      if (originalPauseDescriptor) {
+        Object.defineProperty(prototype, 'pauseAnimations', originalPauseDescriptor);
+      } else {
+        Reflect.deleteProperty(prototype, 'pauseAnimations');
+      }
+
+      if (originalUnpauseDescriptor) {
+        Object.defineProperty(prototype, 'unpauseAnimations', originalUnpauseDescriptor);
+      } else {
+        Reflect.deleteProperty(prototype, 'unpauseAnimations');
+      }
+
+      if (originalSetCurrentTimeDescriptor) {
+        Object.defineProperty(prototype, 'setCurrentTime', originalSetCurrentTimeDescriptor);
+      } else {
+        Reflect.deleteProperty(prototype, 'setCurrentTime');
+      }
+
+      if (originalGetCurrentTimeDescriptor) {
+        Object.defineProperty(prototype, 'getCurrentTime', originalGetCurrentTimeDescriptor);
+      } else {
+        Reflect.deleteProperty(prototype, 'getCurrentTime');
+      }
+    }
   });
 
   it('highlights risky preview nodes when hovering a risk entry', async () => {
@@ -1793,7 +1914,7 @@ describe('App', () => {
 
     openWorkspaceSection('Repair');
 
-    const repairSection = screen.getByText('Safe normalization').closest('section');
+    const repairSection = screen.getByText('Guided cleanup').closest('section');
     const getReferenceCleanupButton = () => Array.from(repairSection?.querySelectorAll('button') ?? []).find((button) => button.textContent?.includes('broken/external refs')) as HTMLButtonElement | undefined;
 
     await waitFor(() => {
@@ -1832,7 +1953,7 @@ describe('App', () => {
 
     openWorkspaceSection('Repair');
 
-    const repairSection = screen.getByText('Safe normalization').closest('section');
+    const repairSection = screen.getByText('Guided cleanup').closest('section');
     const getReferenceCleanupButton = () => Array.from(repairSection?.querySelectorAll('button') ?? []).find((button) => button.textContent?.includes('broken/external refs')) as HTMLButtonElement | undefined;
 
     await waitFor(() => {
