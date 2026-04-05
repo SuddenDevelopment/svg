@@ -100,6 +100,21 @@ import {
 } from './lib/svg-style';
 import type { StyleDraft } from './lib/svg-style';
 
+type WorkspaceIconName =
+  | 'zoomOut'
+  | 'zoomIn'
+  | 'resetView'
+  | 'panUp'
+  | 'panLeft'
+  | 'panRight'
+  | 'panDown'
+  | 'play'
+  | 'pause'
+  | 'restart'
+  | 'optimize'
+  | 'prettify'
+  | 'clear';
+
 type PreviewTab = 'preview' | 'source';
 type WorkspaceSection = 'file' | 'repair' | 'export';
 type InspectorTab = 'overview' | 'selection' | 'warnings';
@@ -125,6 +140,112 @@ type SourceSelection = {
   start: number;
   end: number;
 };
+
+function WorkspaceIcon({ name }: { name: WorkspaceIconName }) {
+  switch (name) {
+    case 'zoomOut':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="M10.5 10.5L14 14" />
+          <path d="M5 7H9" />
+        </svg>
+      );
+    case 'zoomIn':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="M10.5 10.5L14 14" />
+          <path d="M7 5V9" />
+          <path d="M5 7H9" />
+        </svg>
+      );
+    case 'resetView':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 6V3H6" />
+          <path d="M10 3H13V6" />
+          <path d="M13 10V13H10" />
+          <path d="M6 13H3V10" />
+          <path d="M6 3H4.5C3.7 3 3 3.7 3 4.5V6" />
+          <path d="M13 6V4.5C13 3.7 12.3 3 11.5 3H10" />
+          <path d="M10 13H11.5C12.3 13 13 12.3 13 11.5V10" />
+          <path d="M3 10V11.5C3 12.3 3.7 13 4.5 13H6" />
+        </svg>
+      );
+    case 'panUp':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 13V3" />
+          <path d="M4.5 6.5L8 3l3.5 3.5" />
+        </svg>
+      );
+    case 'panLeft':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M13 8H3" />
+          <path d="M6.5 4.5L3 8l3.5 3.5" />
+        </svg>
+      );
+    case 'panRight':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 8H13" />
+          <path d="M9.5 4.5L13 8l-3.5 3.5" />
+        </svg>
+      );
+    case 'panDown':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 3V13" />
+          <path d="M4.5 9.5L8 13l3.5-3.5" />
+        </svg>
+      );
+    case 'play':
+      return (
+        <svg className="button-icon button-icon-fill" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5 3.5L12.5 8 5 12.5Z" />
+        </svg>
+      );
+    case 'pause':
+      return (
+        <svg className="button-icon button-icon-fill" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="4" y="3.5" width="3" height="9" rx="0.75" />
+          <rect x="9" y="3.5" width="3" height="9" rx="0.75" />
+        </svg>
+      );
+    case 'restart':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5 4H2v3" />
+          <path d="M2.5 7.5A5.5 5.5 0 1 0 8 2.5c-1.6 0-3 .6-4 1.5" />
+        </svg>
+      );
+    case 'optimize':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 2.5L9.3 5.4L12.5 5.7L10.1 7.8L10.8 11L8 9.3L5.2 11L5.9 7.8L3.5 5.7L6.7 5.4Z" />
+        </svg>
+      );
+    case 'prettify':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 4.5H13" />
+          <path d="M5 8H13" />
+          <path d="M7 11.5H13" />
+          <path d="M3 8H3.01" />
+          <path d="M3 11.5H3.01" />
+        </svg>
+      );
+    case 'clear':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 4L12 12" />
+          <path d="M12 4L4 12" />
+        </svg>
+      );
+  }
+}
 
 function formatByteCount(bytes: number) {
   if (bytes < 1024) {
@@ -4053,14 +4174,34 @@ function App() {
         <section className="editor-card section-card">
           <label className="editor-label" htmlFor={sourceId}>SVG source</label>
           <div className="source-action-bar" role="toolbar" aria-label="Source actions">
-            <button className="ghost-button source-action-button" type="button" onClick={applySourceOptimize} disabled={Boolean(parseError) || !source.trim()}>
-              Optimize
+            <button
+              className="ghost-button source-action-button workspace-icon-button"
+              type="button"
+              title="Optimize"
+              aria-label="Optimize"
+              onClick={applySourceOptimize}
+              disabled={Boolean(parseError) || !source.trim()}
+            >
+              <WorkspaceIcon name="optimize" />
             </button>
-            <button className="ghost-button source-action-button" type="button" onClick={applySourcePrettify} disabled={Boolean(parseError) || !source.trim()}>
-              Prettify
+            <button
+              className="ghost-button source-action-button workspace-icon-button"
+              type="button"
+              title="Prettify"
+              aria-label="Prettify"
+              onClick={applySourcePrettify}
+              disabled={Boolean(parseError) || !source.trim()}
+            >
+              <WorkspaceIcon name="prettify" />
             </button>
-            <button className="ghost-button source-action-button" type="button" onClick={applySourceClear}>
-              Clear
+            <button
+              className="ghost-button source-action-button workspace-icon-button"
+              type="button"
+              title="Clear"
+              aria-label="Clear"
+              onClick={applySourceClear}
+            >
+              <WorkspaceIcon name="clear" />
             </button>
           </div>
           <div className="source-feedback-grid" aria-label="Editor feedback">
@@ -5243,13 +5384,7 @@ function App() {
 
       <main className={`workspace-grid${isLeftCollapsed ? ' left-collapsed' : ''}`}>
         <aside className={`panel tool-panel side-panel${isLeftCollapsed ? ' collapsed' : ''}`}>
-          <div className="side-panel-header">
-            {!isLeftCollapsed ? (
-              <div>
-                <p className="eyebrow">Workspace</p>
-                <h2>{primaryNavItems.find((item) => item.id === activeSection)?.label}</h2>
-              </div>
-            ) : null}
+          <div className="side-panel-header controls-only">
             <button
               className="collapse-button"
               type="button"
@@ -5286,10 +5421,6 @@ function App() {
         <div className={`workspace-stage inspector-${rightPanelMode}`}>
           <section className="panel preview-panel">
             <div className="panel-heading preview-heading">
-              <div>
-                <p className="eyebrow">Live preview</p>
-                <h2>Preview workspace</h2>
-              </div>
               <div className="preview-tabs" role="tablist" aria-label="Preview modes">
                 <button
                   id={getPreviewTabButtonId('preview')}
@@ -5322,40 +5453,110 @@ function App() {
 
             <div className="preview-toolbar" role="toolbar" aria-label="Preview navigation controls">
               <div className="preview-control-group">
-                <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(-PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
-                  Zoom out
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Zoom out"
+                  aria-label="Zoom out"
+                  onClick={() => zoomPreview(-PREVIEW_SCALE_STEP)}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="zoomOut" />
                 </button>
                 <p className="preview-zoom-readout" aria-live="polite">{Math.round(previewViewport.scale * 100)}%</p>
-                <button className="ghost-button preview-control" type="button" onClick={() => zoomPreview(PREVIEW_SCALE_STEP)} disabled={!isPreviewInteractive}>
-                  Zoom in
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Zoom in"
+                  aria-label="Zoom in"
+                  onClick={() => zoomPreview(PREVIEW_SCALE_STEP)}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="zoomIn" />
                 </button>
-                <button className="ghost-button preview-control" type="button" onClick={resetPreviewViewport} disabled={!isPreviewInteractive}>
-                  Reset view
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Reset view"
+                  aria-label="Reset view"
+                  onClick={resetPreviewViewport}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="resetView" />
                 </button>
               </div>
               <div className="preview-control-group">
-                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, -PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
-                  Pan up
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Pan up"
+                  aria-label="Pan up"
+                  onClick={() => panPreview(0, -PREVIEW_PAN_STEP)}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="panUp" />
                 </button>
-                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(-PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
-                  Pan left
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Pan left"
+                  aria-label="Pan left"
+                  onClick={() => panPreview(-PREVIEW_PAN_STEP, 0)}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="panLeft" />
                 </button>
-                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(PREVIEW_PAN_STEP, 0)} disabled={!isPreviewInteractive}>
-                  Pan right
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Pan right"
+                  aria-label="Pan right"
+                  onClick={() => panPreview(PREVIEW_PAN_STEP, 0)}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="panRight" />
                 </button>
-                <button className="ghost-button preview-control" type="button" onClick={() => panPreview(0, PREVIEW_PAN_STEP)} disabled={!isPreviewInteractive}>
-                  Pan down
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Pan down"
+                  aria-label="Pan down"
+                  onClick={() => panPreview(0, PREVIEW_PAN_STEP)}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="panDown" />
                 </button>
               </div>
               <div className="preview-control-group timeline-control-group">
-                <button className="ghost-button preview-control" type="button" onClick={playPreviewTimeline} disabled={!isPreviewInteractive || isPreviewTimelinePlaying}>
-                  Play
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Play"
+                  aria-label="Play"
+                  onClick={playPreviewTimeline}
+                  disabled={!isPreviewInteractive || isPreviewTimelinePlaying}
+                >
+                  <WorkspaceIcon name="play" />
                 </button>
-                <button className="ghost-button preview-control" type="button" onClick={pausePreviewTimeline} disabled={!isPreviewInteractive || !isPreviewTimelinePlaying}>
-                  Pause
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Pause"
+                  aria-label="Pause"
+                  onClick={pausePreviewTimeline}
+                  disabled={!isPreviewInteractive || !isPreviewTimelinePlaying}
+                >
+                  <WorkspaceIcon name="pause" />
                 </button>
-                <button className="ghost-button preview-control" type="button" onClick={restartPreviewTimeline} disabled={!isPreviewInteractive}>
-                  Restart
+                <button
+                  className="ghost-button preview-control workspace-icon-button"
+                  type="button"
+                  title="Restart"
+                  aria-label="Restart"
+                  onClick={restartPreviewTimeline}
+                  disabled={!isPreviewInteractive}
+                >
+                  <WorkspaceIcon name="restart" />
                 </button>
                 <label className="timeline-scrubber">
                   <span>{previewTimelineSeconds.toFixed(1)}s</span>
@@ -5442,13 +5643,7 @@ function App() {
           </section>
 
           <aside className={`panel inspector-panel side-panel${isRightCollapsed ? ' collapsed' : ''}`} ref={inspectorPanelRef}>
-            <div className="side-panel-header">
-              {!isRightCollapsed ? (
-                <div>
-                  <p className="eyebrow">Inspection</p>
-                  <h2>{inspectorTabLabels[inspectorTab]}</h2>
-                </div>
-              ) : null}
+            <div className="side-panel-header controls-only">
               <button
                 className="collapse-button"
                 type="button"
