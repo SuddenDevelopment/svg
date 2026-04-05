@@ -94,12 +94,19 @@ import {
   createStyleDraft,
   inferStyleDraftForPath,
   isPaintKeyword,
+  reorderElementsInSource,
+  type ReorderDirection,
   isStyleDirectlyHidden,
   paintValueToColorInput,
   setHiddenStateForPaths,
   translateElementsInSource,
 } from './lib/svg-style';
 import type { StyleDraft } from './lib/svg-style';
+import {
+  cropViewBoxToElements,
+  removeViewBoxFromSource,
+  setViewBoxToWorkspaceArea,
+} from './lib/svg-viewbox';
 
 type WorkspaceIconName =
   | 'file'
@@ -143,6 +150,12 @@ type PreviewViewport = {
 type SourceSelection = {
   start: number;
   end: number;
+};
+
+type SourceCommitSelectionState = {
+  selectedPaths?: string[];
+  inspectedPath?: string | null;
+  activeAnimationTargetPath?: string | null;
 };
 
 function WorkspaceIcon({ name }: { name: WorkspaceIconName }) {
@@ -1645,9 +1658,136 @@ function App() {
     applyMoveTranslation(deltaX, deltaY);
   }
 
-  function commitRepairSource(nextSource: string, message: string) {
+  function applyWorkspaceViewBox() {
+    try {
+      const result = setViewBoxToWorkspaceArea(source);
+      commitRepairSource(
+        result.source,
+        result.changed
+          ? `Set the root viewBox to the workspace area (${result.viewBox}).`
+          : 'The root viewBox already matches the workspace area.',
+      );
+      setMoveMessage(
+        result.changed
+          ? `Set the root viewBox to ${result.viewBox}.`
+          : 'The root viewBox already matches the workspace area.',
+      );
+    } catch (error) {
+      setMoveMessage(error instanceof Error ? error.message : 'Unable to fit the root viewBox to the workspace area.');
+    }
+  }
+
+  function cropViewBoxToSelectionBounds() {
+    try {
+      const result = cropViewBoxToElements(source);
+      commitRepairSource(
+        result.source,
+        result.changed
+          ? `Cropped the root viewBox to the current element bounds (${result.viewBox}).`
+          : 'The root viewBox already matches the current element bounds.',
+      );
+      setMoveMessage(
+        result.changed
+          ? `Cropped the root viewBox to ${result.viewBox}.`
+          : 'The root viewBox already matches the current element bounds.',
+      );
+    } catch (error) {
+      setMoveMessage(error instanceof Error ? error.message : 'Unable to crop the root viewBox to the current element bounds.');
+    }
+  }
+
+  function removeRootViewBox() {
+    try {
+      const result = removeViewBoxFromSource(source);
+      commitRepairSource(
+        result.source,
+        result.changed
+          ? 'Removed the root viewBox from the SVG.'
+          : 'The SVG root already has no viewBox.',
+      );
+      setMoveMessage(
+        result.changed
+          ? `Removed the root viewBox. Explicit size is now ${result.width ?? 'auto'} by ${result.height ?? 'auto'}.`
+          : 'The SVG root already has no viewBox.',
+      );
+    } catch (error) {
+      setMoveMessage(error instanceof Error ? error.message : 'Unable to remove the root viewBox.');
+    }
+  }
+
+  function syncSelectionStateForSource(nextSource: string, nextSelectionState?: SourceCommitSelectionState) {
+    if (!nextSelectionState) {
+      return;
+    }
+
+    try {
+      const nextAnalysis = buildAnalysis(nextSource, fileName, textOptions);
+      const nodeIdByPath = new Map(Object.values(nextAnalysis.nodesById).map((node) => [node.path, node.id]));
+      const nextSelectedNodeIds = (nextSelectionState.selectedPaths ?? [])
+        .map((path) => nodeIdByPath.get(path))
+        .filter((nodeId): nodeId is string => Boolean(nodeId));
+
+      setSelectedPreviewNodeIds(nextSelectedNodeIds);
+
+      if (typeof nextSelectionState.inspectedPath !== 'undefined') {
+        const nextInspectedNodeId = nextSelectionState.inspectedPath
+          ? nodeIdByPath.get(nextSelectionState.inspectedPath) ?? null
+          : null;
+        setSelectedNodeId(nextInspectedNodeId);
+      }
+
+      if (typeof nextSelectionState.activeAnimationTargetPath !== 'undefined') {
+        const nextTargetPath = nextSelectionState.activeAnimationTargetPath;
+        setActiveAnimationTargetPath(nextTargetPath && nodeIdByPath.has(nextTargetPath) ? nextTargetPath : null);
+      }
+    } catch {
+      return;
+    }
+  }
+
+  function reorderSelectionInDisplayOrder(direction: ReorderDirection) {
+    if (authorableSelectionPaths.length === 0) {
+      setMoveMessage('Select at least one preview element before changing its display order.');
+      return;
+    }
+
+    try {
+      const result = reorderElementsInSource(source, authorableSelectionPaths, direction);
+      const nextSelectedPaths = authorableSelectionPaths.map((path) => result.pathMap[path] ?? path);
+      const inspectedPath = selectedNode && selectedNode.id !== analysis?.rootNodeId
+        ? result.pathMap[selectedNode.path] ?? selectedNode.path
+        : null;
+      const nextAnimationTargetPath = activeAnimationTargetPath
+        ? result.pathMap[activeAnimationTargetPath] ?? activeAnimationTargetPath
+        : null;
+
+      commitRepairSource(
+        result.source,
+        result.updatedCount > 0
+          ? `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${direction} in display order.`
+          : `The selected elements were already as far ${direction === 'forward' ? 'forward' : 'back'} as they can go.`,
+        {
+          selectedPaths: nextSelectedPaths,
+          inspectedPath,
+          activeAnimationTargetPath: nextAnimationTargetPath,
+        },
+      );
+      setMoveMessage(
+        result.skippedPaths.length > 0
+          ? `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${direction} in display order and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
+          : result.updatedCount > 0
+            ? `${direction === 'forward' ? 'Brought' : 'Sent'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${direction === 'forward' ? 'forward' : 'backward'} in display order.`
+            : `The selected elements were already as far ${direction === 'forward' ? 'forward' : 'back'} as they can go.`,
+      );
+    } catch (error) {
+      setMoveMessage(error instanceof Error ? error.message : 'Unable to change the selected element display order.');
+    }
+  }
+
+  function commitRepairSource(nextSource: string, message: string, nextSelectionState?: SourceCommitSelectionState) {
     setRecentChangePaths(getChangedPreviewNodePaths(source, nextSource));
     setHoveredPreviewNodeIds([]);
+    syncSelectionStateForSource(nextSource, nextSelectionState);
     setSource(nextSource);
     setRepairMessage(message);
     setSourceActionMessage(null);
@@ -3101,6 +3241,7 @@ function App() {
 
   function renderMoveSection() {
     const safeMoveStep = Number.isFinite(moveStep) && moveStep > 0 ? moveStep : 10;
+    const hasViewBox = analysis?.viewBox && analysis.viewBox !== 'none';
 
     return (
       <>
@@ -3108,6 +3249,7 @@ function App() {
           <p className="status-label">Move mode</p>
           <strong>{authorableSelectionPaths.length} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}</strong>
           <p>While this tool is active, drag an already selected preview element to reposition it. Dragging empty space still pans the viewport.</p>
+          <p className="section-copy">Current framing: viewBox {analysis?.viewBox ?? 'none'} • workspace {analysis?.width ?? 'auto'} by {analysis?.height ?? 'auto'}</p>
         </section>
 
         <section className="focus-card section-card">
@@ -3123,7 +3265,25 @@ function App() {
             <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds([])} disabled={authorableSelectionPaths.length === 0}>
               Clear selection
             </button>
+            <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('backward')} disabled={authorableSelectionPaths.length === 0}>
+              Send backward
+            </button>
+            <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('forward')} disabled={authorableSelectionPaths.length === 0}>
+              Bring forward
+            </button>
           </div>
+          <div className="move-viewbox-actions" role="group" aria-label="ViewBox actions">
+            <button className="ghost-button" type="button" onClick={applyWorkspaceViewBox}>
+              Set viewBox to workspace area
+            </button>
+            <button className="ghost-button" type="button" onClick={cropViewBoxToSelectionBounds}>
+              Crop viewBox to elements
+            </button>
+            <button className="ghost-button" type="button" onClick={removeRootViewBox} disabled={!hasViewBox}>
+              Remove viewBox
+            </button>
+          </div>
+          <p className="section-copy">Removing the root viewBox is valid SVG, but scaling will then depend on the root width and height instead of a separate framing window.</p>
           <label className="animation-field move-step-field">
             <span>Nudge distance</span>
             <input

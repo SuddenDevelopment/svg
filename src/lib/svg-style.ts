@@ -22,6 +22,15 @@ export type TranslationMutationResult = {
   skippedPaths: string[];
 };
 
+export type ReorderDirection = 'backward' | 'forward';
+
+export type ReorderMutationResult = {
+  source: string;
+  updatedCount: number;
+  skippedPaths: string[];
+  pathMap: Record<string, string>;
+};
+
 export function isStyleDirectlyHidden(attributes: Partial<Record<string, string>> = {}) {
   const display = attributes.display?.trim().toLowerCase() ?? '';
   const visibility = attributes.visibility?.trim().toLowerCase() ?? '';
@@ -59,6 +68,46 @@ function resolveElementByPath(root: SVGSVGElement, path: string) {
   }
 
   return current;
+}
+
+function getElementPathMap(root: SVGSVGElement, targets: Map<string, Element>) {
+  const pathMap: Record<string, string> = {};
+
+  const visit = (element: Element, path: string) => {
+    targets.forEach((target, originalPath) => {
+      if (target === element) {
+        pathMap[originalPath] = path;
+      }
+    });
+
+    Array.from(element.children).forEach((child, childIndex) => {
+      visit(child, `${path}.${childIndex}`);
+    });
+  };
+
+  visit(root, '0');
+  return pathMap;
+}
+
+function reorderChildren(children: Element[], selectedElements: Set<Element>, direction: ReorderDirection) {
+  const nextChildren = [...children];
+
+  if (direction === 'forward') {
+    for (let index = nextChildren.length - 2; index >= 0; index -= 1) {
+      if (selectedElements.has(nextChildren[index]) && !selectedElements.has(nextChildren[index + 1])) {
+        [nextChildren[index], nextChildren[index + 1]] = [nextChildren[index + 1], nextChildren[index]];
+      }
+    }
+    return nextChildren;
+  }
+
+  for (let index = 1; index < nextChildren.length; index += 1) {
+    if (selectedElements.has(nextChildren[index]) && !selectedElements.has(nextChildren[index - 1])) {
+      [nextChildren[index - 1], nextChildren[index]] = [nextChildren[index], nextChildren[index - 1]];
+    }
+  }
+
+  return nextChildren;
 }
 
 function normalizeAttributeValue(value: string) {
@@ -287,6 +336,62 @@ export function translateElementsInSource(
     source: new XMLSerializer().serializeToString(root),
     updatedCount,
     skippedPaths,
+  };
+}
+
+export function reorderElementsInSource(
+  source: string,
+  targetPaths: string[],
+  direction: ReorderDirection,
+): ReorderMutationResult {
+  const root = parseSvgRoot(source);
+  const uniquePaths = Array.from(new Set(targetPaths));
+  const skippedPaths: string[] = [];
+  const resolvedTargets = new Map<string, Element>();
+  const targetsByParent = new Map<Element, Element[]>();
+
+  uniquePaths.forEach((path) => {
+    const target = resolveElementByPath(root, path);
+    if (!target || !(target.parentElement instanceof Element)) {
+      skippedPaths.push(path);
+      return;
+    }
+
+    resolvedTargets.set(path, target);
+    const siblings = targetsByParent.get(target.parentElement) ?? [];
+    siblings.push(target);
+    targetsByParent.set(target.parentElement, siblings);
+  });
+
+  let updatedCount = 0;
+
+  targetsByParent.forEach((selectedChildren, parent) => {
+    const originalChildren = Array.from(parent.children);
+    const originalIndexes = new Map(originalChildren.map((child, index) => [child, index]));
+    const selectedSet = new Set(selectedChildren);
+    const reorderedChildren = reorderChildren(originalChildren, selectedSet, direction);
+
+    const changed = reorderedChildren.some((child, index) => child !== originalChildren[index]);
+    if (!changed) {
+      return;
+    }
+
+    reorderedChildren.forEach((child) => {
+      parent.appendChild(child);
+    });
+
+    selectedChildren.forEach((child) => {
+      if (originalIndexes.get(child) !== reorderedChildren.indexOf(child)) {
+        updatedCount += 1;
+      }
+    });
+  });
+
+  return {
+    source: new XMLSerializer().serializeToString(root),
+    updatedCount,
+    skippedPaths,
+    pathMap: getElementPathMap(root, resolvedTargets),
   };
 }
 

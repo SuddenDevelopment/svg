@@ -361,6 +361,132 @@ describe('App', () => {
     }
   });
 
+  it('reorders the selected preview element from the move tool and keeps it selected', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="rear" x="0" y="0" width="20" height="20" /><rect id="front" x="0" y="0" width="20" height="20" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRects = container.querySelectorAll('.svg-preview-frame svg rect');
+    const rearRect = previewRects[0] ?? null;
+    const frontRect = previewRects[1] ?? null;
+    expect(rearRect).not.toBeNull();
+    expect(frontRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+    const originalElementsFromPoint = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => frontRect),
+      });
+      Object.defineProperty(document, 'elementsFromPoint', {
+        configurable: true,
+        value: vi.fn(() => [frontRect, rearRect]),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 71, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 71, clientX: 24, clientY: 18 });
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 72, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 72, clientX: 24, clientY: 18 });
+
+      await waitFor(() => {
+        expect(container.querySelector('.svg-preview-frame [data-svg-node-selected="true"]')?.getAttribute('id')).toBe('rear');
+      });
+
+      openSelectionTool('Move');
+      fireEvent.click(screen.getByRole('button', { name: 'Bring forward' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Brought 1 selected element forward in display order.')).toBeInTheDocument();
+      });
+
+      expect(container.querySelector('.svg-preview-frame [data-svg-node-selected="true"]')?.getAttribute('id')).toBe('rear');
+
+      openWorkspaceSection('File');
+      const sourceValue = (screen.getByLabelText('SVG source') as HTMLTextAreaElement).value;
+      expect(sourceValue.indexOf('id="front"')).toBeGreaterThanOrEqual(0);
+      expect(sourceValue.indexOf('id="rear"')).toBeGreaterThan(sourceValue.indexOf('id="front"'));
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+
+      if (originalElementsFromPoint) {
+        Object.defineProperty(document, 'elementsFromPoint', originalElementsFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementsFromPoint');
+      }
+    }
+  });
+
+  it('sets the root viewBox to the workspace area from the move tool', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="20 30 60 40"><rect width="12" height="12" /></svg>',
+      },
+    });
+
+    openSelectionTool('Move');
+    fireEvent.click(screen.getByRole('button', { name: 'Set viewBox to workspace area' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Set the root viewBox to 0 0 320 180.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('viewBox="0 0 320 180"');
+  });
+
+  it('crops the root viewBox to element bounds from the move tool', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><g transform="translate(10 15)"><rect x="5" y="6" width="20" height="10" /></g><circle cx="50" cy="30" r="5" /></svg>',
+      },
+    });
+
+    openSelectionTool('Move');
+    fireEvent.click(screen.getByRole('button', { name: 'Crop viewBox to elements' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Cropped the root viewBox to 15 21 40 14.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('viewBox="15 21 40 14"');
+  });
+
+  it('removes the root viewBox from the move tool', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="12" height="12" /></svg>',
+      },
+    });
+
+    openSelectionTool('Move');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove viewBox' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Removed the root viewBox. Explicit size is now 320 by 180.')).toBeInTheDocument();
+    });
+
+    openWorkspaceSection('File');
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).not.toContain('viewBox=');
+  });
+
   it('shows blocked export readiness details for text-based SVGs', async () => {
     render(<App />);
 

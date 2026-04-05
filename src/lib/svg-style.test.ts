@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { translateElementsInSource } from './svg-style';
+import { reorderElementsInSource, translateElementsInSource } from './svg-style';
 
 describe('translateElementsInSource', () => {
   it('adds a translate transform to selected elements without an existing transform', () => {
@@ -31,5 +31,31 @@ describe('translateElementsInSource', () => {
     expect(result.skippedPaths).toEqual(['0.9']);
     expect(result.source).toContain('<rect width="12" height="12"/>');
     expect(result.source).not.toContain('transform=');
+  });
+});
+
+describe('reorderElementsInSource', () => {
+  it('moves a selected element one step forward in display order and remaps its path', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect id="rear" /><rect id="middle" /><rect id="front" /></svg>';
+
+    const result = reorderElementsInSource(source, ['0.0'], 'forward');
+
+    expect(result.updatedCount).toBe(1);
+    expect(result.skippedPaths).toEqual([]);
+    expect(result.pathMap).toEqual({ '0.0': '0.1' });
+    expect(result.source).toContain('<rect id="middle"/><rect id="rear"/><rect id="front"/>');
+  });
+
+  it('moves selected siblings backward together while preserving their relative order', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect id="a" /><rect id="b" /><rect id="c" /><rect id="d" /></svg>';
+
+    const result = reorderElementsInSource(source, ['0.2', '0.3'], 'backward');
+
+    expect(result.updatedCount).toBe(2);
+    expect(result.pathMap).toEqual({
+      '0.2': '0.1',
+      '0.3': '0.2',
+    });
+    expect(result.source).toContain('<rect id="a"/><rect id="c"/><rect id="d"/><rect id="b"/>');
   });
 });
