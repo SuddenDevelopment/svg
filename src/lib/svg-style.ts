@@ -16,6 +16,12 @@ export type StyleMutationResult = {
   skippedPaths: string[];
 };
 
+export type TranslationMutationResult = {
+  source: string;
+  updatedCount: number;
+  skippedPaths: string[];
+};
+
 export function isStyleDirectlyHidden(attributes: Partial<Record<string, string>> = {}) {
   const display = attributes.display?.trim().toLowerCase() ?? '';
   const visibility = attributes.visibility?.trim().toLowerCase() ?? '';
@@ -77,6 +83,52 @@ function setOrRemoveAttribute(target: Element, attributeName: string, nextValue:
 
   target.setAttribute(attributeName, normalizedValue);
   return true;
+}
+
+function formatTransformNumber(value: number) {
+  return `${Number(value.toFixed(3))}`;
+}
+
+function formatTranslateTransform(x: number, y: number) {
+  return `translate(${formatTransformNumber(x)} ${formatTransformNumber(y)})`;
+}
+
+function parseTranslateValues(value: string) {
+  const numbers = value
+    .trim()
+    .split(/[\s,]+/)
+    .map((segment) => Number(segment))
+    .filter((segment) => Number.isFinite(segment));
+
+  if (numbers.length === 0) {
+    return null;
+  }
+
+  return {
+    x: numbers[0] ?? 0,
+    y: numbers[1] ?? 0,
+  };
+}
+
+function mergeTranslateTransform(currentTransform: string | null, deltaX: number, deltaY: number) {
+  const normalizedTransform = (currentTransform ?? '').trim();
+  if (normalizedTransform.length === 0) {
+    return formatTranslateTransform(deltaX, deltaY);
+  }
+
+  const trailingTranslateMatch = normalizedTransform.match(/^(.*?)(?:\s+)?translate\(([^)]+)\)\s*$/i);
+  if (!trailingTranslateMatch) {
+    return `${normalizedTransform} ${formatTranslateTransform(deltaX, deltaY)}`;
+  }
+
+  const parsedTranslate = parseTranslateValues(trailingTranslateMatch[2] ?? '');
+  if (!parsedTranslate) {
+    return `${normalizedTransform} ${formatTranslateTransform(deltaX, deltaY)}`;
+  }
+
+  const prefix = (trailingTranslateMatch[1] ?? '').trim();
+  const nextTranslate = formatTranslateTransform(parsedTranslate.x + deltaX, parsedTranslate.y + deltaY);
+  return prefix.length > 0 ? `${prefix} ${nextTranslate}` : nextTranslate;
 }
 
 export function createStyleDraft(attributes: Partial<Record<string, string>> = {}): StyleDraft {
@@ -183,6 +235,49 @@ export function setHiddenStateForPaths(
       }
     }
 
+    if (changed) {
+      updatedCount += 1;
+    }
+  });
+
+  return {
+    source: new XMLSerializer().serializeToString(root),
+    updatedCount,
+    skippedPaths,
+  };
+}
+
+export function translateElementsInSource(
+  source: string,
+  targetPaths: string[],
+  deltaX: number,
+  deltaY: number,
+): TranslationMutationResult {
+  const safeDeltaX = Number.isFinite(deltaX) ? Number(deltaX.toFixed(3)) : 0;
+  const safeDeltaY = Number.isFinite(deltaY) ? Number(deltaY.toFixed(3)) : 0;
+
+  if (Math.abs(safeDeltaX) < 0.001 && Math.abs(safeDeltaY) < 0.001) {
+    return {
+      source,
+      updatedCount: 0,
+      skippedPaths: [],
+    };
+  }
+
+  const root = parseSvgRoot(source);
+  const uniquePaths = Array.from(new Set(targetPaths));
+  const skippedPaths: string[] = [];
+  let updatedCount = 0;
+
+  uniquePaths.forEach((path) => {
+    const target = resolveElementByPath(root, path);
+    if (!target) {
+      skippedPaths.push(path);
+      return;
+    }
+
+    const nextTransform = mergeTranslateTransform(target.getAttribute('transform'), safeDeltaX, safeDeltaY);
+    const changed = setOrRemoveAttribute(target, 'transform', nextTransform);
     if (changed) {
       updatedCount += 1;
     }

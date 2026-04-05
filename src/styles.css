@@ -1125,6 +1125,11 @@ textarea {
   cursor: grabbing;
 }
 
+.preview-viewport.is-moving-selection {
+  transition: none;
+  cursor: grabbing;
+}
+
 .artboard-grid {
   position: absolute;
   inset: 0;
@@ -1189,6 +1194,12 @@ textarea {
 
 .svg-preview-frame [data-svg-node-targeted="true"] {
   filter: drop-shadow(var(--preview-selection-targeted-shadow));
+}
+
+.svg-preview-frame [data-svg-node-moving="true"] {
+  transform: translate(var(--preview-move-x, 0px), var(--preview-move-y, 0px));
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .markup-preview {
@@ -1434,7 +1445,7 @@ textarea {
 
 .selection-facet-tabs {
   border: 1px solid var(--panel-border);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   background: var(--panel-soft-bg);
   color: var(--app-muted);
   padding: 6px 6px 0;
@@ -1495,6 +1506,21 @@ textarea {
   margin-top: 0;
   display: grid;
   gap: 6px;
+}
+
+.move-step-field {
+  max-width: 12rem;
+}
+
+.move-nudge-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 22rem;
+}
+
+.move-nudge-spacer {
+  min-height: 1px;
 }
 
 .selection-appearance-grid {

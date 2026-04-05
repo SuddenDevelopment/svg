@@ -79,7 +79,7 @@ function openWorkspaceSection(name: 'File' | 'Repair' | 'Export') {
   }
 }
 
-function openSelectionTool(name: 'Style' | 'Animate' | 'Interact') {
+function openSelectionTool(name: 'Style' | 'Move' | 'Animate' | 'Interact') {
   ensureInspectorExpanded();
   fireEvent.click(screen.getByRole('tab', { name: 'Selection' }));
   fireEvent.click(screen.getByRole('tab', { name }));
@@ -237,16 +237,22 @@ describe('App', () => {
 
     const toolTablist = screen.getByRole('tablist', { name: 'Selected element tools' });
     const styleTab = within(toolTablist).getByRole('tab', { name: 'Style' });
+    const moveTab = within(toolTablist).getByRole('tab', { name: 'Move' });
     const animationTab = within(toolTablist).getByRole('tab', { name: 'Animate' });
     const interactionTab = within(toolTablist).getByRole('tab', { name: 'Interact' });
     const toolPanel = screen.getByRole('tabpanel', { name: 'Style' });
 
     expect(styleTab).toHaveAttribute('aria-controls', toolPanel.id);
-    expect(animationTab).toHaveAttribute('tabindex', '-1');
+    expect(moveTab).toHaveAttribute('tabindex', '-1');
     expect(toolPanel).toHaveAttribute('aria-labelledby', styleTab.id);
 
     styleTab.focus();
     fireEvent.keyDown(styleTab, { key: 'ArrowRight' });
+
+    expect(moveTab).toHaveFocus();
+    expect(moveTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(moveTab, { key: 'ArrowRight' });
 
     expect(animationTab).toHaveFocus();
     expect(animationTab).toHaveAttribute('aria-selected', 'true');
@@ -256,6 +262,103 @@ describe('App', () => {
     expect(interactionTab).toHaveFocus();
     expect(interactionTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Interact' })).toBeInTheDocument();
+  });
+
+  it('moves the selected preview element when move mode is active and the selection is dragged', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="panel" width="12" height="12" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 61, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 61, clientX: 20, clientY: 20 });
+
+      openSelectionTool('Move');
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 62, clientX: 20, clientY: 20 });
+      fireEvent.pointerMove(previewSurface, { button: 0, pointerId: 62, clientX: 38, clientY: 32 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 62, clientX: 38, clientY: 32 });
+
+      await waitFor(() => {
+        expect(screen.getByText('Moved 1 selected element by x 18, y 12.')).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+      expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('transform="translate(18 12)"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('nudges the selected preview element from the move tool', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="panel" width="12" height="12" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 63, clientX: 20, clientY: 20 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 63, clientX: 20, clientY: 20 });
+
+      openSelectionTool('Move');
+
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Nudge distance' }), {
+        target: { value: '6' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Nudge right' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Moved 1 selected element by x 6, y 0.')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Nudge down' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Moved 1 selected element by x 0, y 6.')).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+      expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('transform="translate(6 6)"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
   });
 
   it('shows blocked export readiness details for text-based SVGs', async () => {

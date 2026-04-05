@@ -213,8 +213,8 @@ describe('svg-animation', () => {
       { path: '0.1', draft: createAnimationDraft('drift', { ...baseDraft, delaySeconds: 0.8, motionDistance: 28 }) },
     ]);
 
-    expect(result.source).toContain('begin="0.2s"');
-    expect(result.source).toContain('begin="0.8s"');
+    expect(result.source).toContain('begin="click+0.2s"');
+    expect(result.source).toContain('begin="click+0.8s"');
     expect(result.source).toContain('values="0 0; 7.07 -7.07; 0 0"');
     expect(result.source).toContain('values="0 0; 19.8 -19.8; 0 0"');
   });

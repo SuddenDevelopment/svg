@@ -97,10 +97,14 @@ import {
   isStyleDirectlyHidden,
   paintValueToColorInput,
   setHiddenStateForPaths,
+  translateElementsInSource,
 } from './lib/svg-style';
 import type { StyleDraft } from './lib/svg-style';
 
 type WorkspaceIconName =
+  | 'file'
+  | 'export'
+  | 'repair'
   | 'zoomOut'
   | 'zoomIn'
   | 'resetView'
@@ -118,7 +122,7 @@ type WorkspaceIconName =
 type PreviewTab = 'preview' | 'source';
 type WorkspaceSection = 'file' | 'repair' | 'export';
 type InspectorTab = 'overview' | 'selection' | 'warnings';
-type SelectionFacet = 'style' | 'animate' | 'interact';
+type SelectionFacet = 'style' | 'move' | 'animate' | 'interact';
 type RightPanelMode = 'collapsed' | 'quarter' | 'half';
 
 type ExportReport = {
@@ -143,6 +147,30 @@ type SourceSelection = {
 
 function WorkspaceIcon({ name }: { name: WorkspaceIconName }) {
   switch (name) {
+    case 'file':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 2.5H9.5L12.5 5.5V13.5H4Z" />
+          <path d="M9.5 2.5V5.5H12.5" />
+          <path d="M6 8H10.5" />
+          <path d="M6 10.5H10.5" />
+        </svg>
+      );
+    case 'export':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 2.5V9.5" />
+          <path d="M5 6.5L8 9.5L11 6.5" />
+          <path d="M3.5 11.5V13.5H12.5V11.5" />
+        </svg>
+      );
+    case 'repair':
+      return (
+        <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M9.8 3.2A2.4 2.4 0 0 0 12.6 6L8.7 9.9L6.1 7.3L10 3.4A2.4 2.4 0 0 0 9.8 3.2Z" />
+          <path d="M5.4 8L3 10.4A1.5 1.5 0 1 0 5.1 12.5L7.5 10.1" />
+        </svg>
+      );
     case 'zoomOut':
       return (
         <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -331,22 +359,22 @@ const resourceCards: Array<{
 const primaryNavItems: Array<{
   id: WorkspaceSection;
   label: string;
-  shortLabel: string;
+  iconName: WorkspaceIconName;
 }> = [
   {
     id: 'file',
     label: 'File',
-    shortLabel: 'Fi',
+    iconName: 'file',
   },
   {
     id: 'repair',
     label: 'Repair',
-    shortLabel: 'Re',
+    iconName: 'repair',
   },
   {
     id: 'export',
     label: 'Export',
-    shortLabel: 'Ex',
+    iconName: 'export',
   },
 ];
 
@@ -365,6 +393,7 @@ const defaultInspectorTabBySection: Record<WorkspaceSection, InspectorTab> = {
 
 const selectionFacetLabels: Record<SelectionFacet, string> = {
   style: 'Style',
+  move: 'Move',
   animate: 'Animate',
   interact: 'Interact',
 };
@@ -779,7 +808,12 @@ function App() {
     pointerId: number;
     lastX: number;
     lastY: number;
+    startX: number;
+    startY: number;
     distance: number;
+    mode: 'pan' | 'move';
+    moveTargetIds: string[];
+    moveTargetPaths: string[];
   } | null>(null);
   const previewHitCycleRef = useRef<{
     clientX: number;
@@ -814,6 +848,8 @@ function App() {
   const [interactionMessage, setInteractionMessage] = useState<string | null>(null);
   const [styleDraft, setStyleDraft] = useState<StyleDraft>(() => createStyleDraft());
   const [styleMessage, setStyleMessage] = useState<string | null>(null);
+  const [moveStep, setMoveStep] = useState(10);
+  const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [previewTimelineSeconds, setPreviewTimelineSeconds] = useState(0);
   const [isPreviewTimelinePlaying, setIsPreviewTimelinePlaying] = useState(false);
   const [hoveredPreviewNodeIds, setHoveredPreviewNodeIds] = useState<string[]>([]);
@@ -821,6 +857,7 @@ function App() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isPanningPreview, setIsPanningPreview] = useState(false);
+  const [isMovingSelection, setIsMovingSelection] = useState(false);
   const [selectionAppearancePreset, setSelectionAppearancePreset] = useState<SelectionAppearancePresetId>(
     () => initialSelectionAppearanceRef.current?.preset ?? 'studio',
   );
@@ -1511,7 +1548,101 @@ function App() {
 
   function stopPreviewPan() {
     previewPointerRef.current = null;
+    clearPreviewMoveTransform();
     setIsPanningPreview(false);
+    setIsMovingSelection(false);
+  }
+
+  function applyPreviewMoveTransform(nodeIds: string[], deltaX: number, deltaY: number) {
+    const previewFrame = previewFrameRef.current;
+    if (!previewFrame) {
+      return;
+    }
+
+    nodeIds.forEach((nodeId) => {
+      const node = previewFrame.querySelector<HTMLElement>(`[data-svg-node-id="${nodeId}"]`);
+      if (!node) {
+        return;
+      }
+
+      node.setAttribute('data-svg-node-moving', 'true');
+      node.style.setProperty('--preview-move-x', `${deltaX}px`);
+      node.style.setProperty('--preview-move-y', `${deltaY}px`);
+    });
+  }
+
+  function clearPreviewMoveTransform(nodeIds?: string[]) {
+    const previewFrame = previewFrameRef.current;
+    if (!previewFrame) {
+      return;
+    }
+
+    const movedNodes = nodeIds && nodeIds.length > 0
+      ? nodeIds
+        .map((nodeId) => previewFrame.querySelector<HTMLElement>(`[data-svg-node-id="${nodeId}"]`))
+        .filter((node): node is HTMLElement => Boolean(node))
+      : Array.from(previewFrame.querySelectorAll<HTMLElement>('[data-svg-node-moving="true"]'));
+
+    movedNodes.forEach((node) => {
+      node.removeAttribute('data-svg-node-moving');
+      node.style.removeProperty('--preview-move-x');
+      node.style.removeProperty('--preview-move-y');
+    });
+  }
+
+  function convertClientDeltaToSvgDelta(clientDeltaX: number, clientDeltaY: number) {
+    const previewSvg = getPreviewSvgElement();
+    const fallbackScale = Math.max(0.01, previewViewport.scale);
+    const fallback = {
+      x: Number((clientDeltaX / fallbackScale).toFixed(2)),
+      y: Number((clientDeltaY / fallbackScale).toFixed(2)),
+    };
+
+    if (!previewSvg) {
+      return fallback;
+    }
+
+    const previewRect = previewSvg.getBoundingClientRect();
+    const viewBox = previewSvg.viewBox?.baseVal;
+  const svgWidth = viewBox && viewBox.width > 0 ? viewBox.width : Number(analysis?.width ?? 0);
+  const svgHeight = viewBox && viewBox.height > 0 ? viewBox.height : Number(analysis?.height ?? 0);
+
+    if (previewRect.width <= 0 || previewRect.height <= 0 || svgWidth <= 0 || svgHeight <= 0) {
+      return fallback;
+    }
+
+    return {
+      x: Number(((clientDeltaX * svgWidth) / previewRect.width).toFixed(2)),
+      y: Number(((clientDeltaY * svgHeight) / previewRect.height).toFixed(2)),
+    };
+  }
+
+  function applyMoveTranslation(deltaX: number, deltaY: number, targetPaths = authorableSelectionPaths) {
+    if (targetPaths.length === 0) {
+      setMoveMessage('Select at least one preview element before moving it.');
+      return;
+    }
+
+    try {
+      const result = translateElementsInSource(source, targetPaths, deltaX, deltaY);
+      commitRepairSource(
+        result.source,
+        result.updatedCount > 0
+          ? `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`
+          : 'The selected elements did not move.',
+      );
+      setMoveMessage(
+        result.skippedPaths.length > 0
+          ? `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} by x ${deltaX}, y ${deltaY} and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
+          : `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} by x ${deltaX}, y ${deltaY}.`,
+      );
+    } catch (error) {
+      setMoveMessage(error instanceof Error ? error.message : 'Unable to move the selected element.');
+    }
+  }
+
+  function nudgeSelection(deltaX: number, deltaY: number) {
+    applyMoveTranslation(deltaX, deltaY);
   }
 
   function commitRepairSource(nextSource: string, message: string) {
@@ -2405,14 +2536,36 @@ function App() {
       return;
     }
 
+    const clickedNodeId = selectionFacet === 'move'
+      ? resolvePreviewNodeId(event.target, event.clientX, event.clientY, false)
+      : null;
+    const moveTargetIds = analysis
+      ? selectedPreviewNodeIds.filter((nodeId) => nodeId !== analysis.rootNodeId)
+      : [];
+    const moveTargetPaths = analysis
+      ? moveTargetIds
+        .map((nodeId) => analysis.nodesById[nodeId]?.path)
+        .filter((path): path is string => Boolean(path))
+      : [];
+    const shouldMoveSelection = selectionFacet === 'move'
+      && Boolean(clickedNodeId)
+      && moveTargetIds.includes(clickedNodeId as string)
+      && moveTargetPaths.length > 0;
+
     previewPointerRef.current = {
       pointerId: event.pointerId,
       lastX: event.clientX,
       lastY: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
       distance: 0,
+      mode: shouldMoveSelection ? 'move' : 'pan',
+      moveTargetIds,
+      moveTargetPaths,
     };
     suppressPreviewClickRef.current = false;
-    setIsPanningPreview(true);
+    setIsPanningPreview(!shouldMoveSelection);
+    setIsMovingSelection(false);
     if (typeof event.currentTarget.setPointerCapture === 'function') {
       event.currentTarget.setPointerCapture(event.pointerId);
     }
@@ -2435,11 +2588,24 @@ function App() {
       pointerId: event.pointerId,
       lastX: event.clientX,
       lastY: event.clientY,
+      startX: currentPointer.startX,
+      startY: currentPointer.startY,
       distance,
+      mode: currentPointer.mode,
+      moveTargetIds: currentPointer.moveTargetIds,
+      moveTargetPaths: currentPointer.moveTargetPaths,
     };
 
     if (distance > 4) {
       suppressPreviewClickRef.current = true;
+    }
+
+    if (currentPointer.mode === 'move') {
+      const totalDeltaX = event.clientX - currentPointer.startX;
+      const totalDeltaY = event.clientY - currentPointer.startY;
+      applyPreviewMoveTransform(currentPointer.moveTargetIds, totalDeltaX, totalDeltaY);
+      setIsMovingSelection(distance > 0);
+      return;
     }
 
     panPreview(deltaX, deltaY);
@@ -2452,9 +2618,29 @@ function App() {
     }
 
     const shouldSuppressClick = suppressPreviewClickRef.current;
+    const totalDeltaX = event.clientX - currentPointer.startX;
+    const totalDeltaY = event.clientY - currentPointer.startY;
     stopPreviewPan();
     if (typeof event.currentTarget.hasPointerCapture === 'function' && event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (currentPointer.mode === 'move') {
+      clearPreviewMoveTransform(currentPointer.moveTargetIds);
+      if (currentPointer.distance <= 4) {
+        const appendSelection = event.shiftKey || event.ctrlKey || event.metaKey;
+        const nodeId = resolvePreviewNodeId(event.target, event.clientX, event.clientY, !appendSelection);
+        if (nodeId) {
+          handlePreviewNodeSelection(nodeId, appendSelection);
+        }
+        suppressPreviewClickRef.current = false;
+        return;
+      }
+
+      const svgDelta = convertClientDeltaToSvgDelta(totalDeltaX, totalDeltaY);
+      applyMoveTranslation(svgDelta.x, svgDelta.y, currentPointer.moveTargetPaths);
+      suppressPreviewClickRef.current = false;
+      return;
     }
 
     if (shouldSuppressClick) {
@@ -2911,6 +3097,67 @@ function App() {
     } catch (error) {
       setStyleMessage(error instanceof Error ? error.message : 'Unable to update selected element visibility.');
     }
+  }
+
+  function renderMoveSection() {
+    const safeMoveStep = Number.isFinite(moveStep) && moveStep > 0 ? moveStep : 10;
+
+    return (
+      <>
+        <section className="status-card compact-card">
+          <p className="status-label">Move mode</p>
+          <strong>{authorableSelectionPaths.length} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}</strong>
+          <p>While this tool is active, drag an already selected preview element to reposition it. Dragging empty space still pans the viewport.</p>
+        </section>
+
+        <section className="focus-card section-card">
+          <div className="section-header-inline" data-fit-container>
+            <h3>Move controls</h3>
+            <span className="status-label">Selection-driven</span>
+          </div>
+          <p className="section-copy">Use drag-to-move in the preview for direct placement, or nudge the current selection in fixed steps for more controlled adjustments.</p>
+          <div className="animation-target-actions" role="toolbar" aria-label="Move selection actions">
+            <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds(selectedNodeId ? [selectedNodeId] : [])} disabled={selectedPreviewNodeCount <= 1}>
+              Keep only inspected element
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds([])} disabled={authorableSelectionPaths.length === 0}>
+              Clear selection
+            </button>
+          </div>
+          <label className="animation-field move-step-field">
+            <span>Nudge distance</span>
+            <input
+              aria-label="Nudge distance"
+              type="number"
+              min="0.1"
+              step="0.5"
+              value={moveStep}
+              onChange={(event) => {
+                setMoveStep(Number(event.target.value));
+                setMoveMessage(null);
+              }}
+            />
+          </label>
+          <div className="move-nudge-grid" role="group" aria-label="Move selected element">
+            <span className="move-nudge-spacer" aria-hidden="true" />
+            <button className="ghost-button" type="button" onClick={() => nudgeSelection(0, -safeMoveStep)} disabled={authorableSelectionPaths.length === 0}>
+              Nudge up
+            </button>
+            <span className="move-nudge-spacer" aria-hidden="true" />
+            <button className="ghost-button" type="button" onClick={() => nudgeSelection(-safeMoveStep, 0)} disabled={authorableSelectionPaths.length === 0}>
+              Nudge left
+            </button>
+            <button className="ghost-button" type="button" onClick={() => nudgeSelection(0, safeMoveStep)} disabled={authorableSelectionPaths.length === 0}>
+              Nudge down
+            </button>
+            <button className="ghost-button" type="button" onClick={() => nudgeSelection(safeMoveStep, 0)} disabled={authorableSelectionPaths.length === 0}>
+              Nudge right
+            </button>
+          </div>
+          {moveMessage ? <p className="repair-note">{moveMessage}</p> : null}
+        </section>
+      </>
+    );
   }
 
   function renderSelectionStyleSection() {
@@ -4972,6 +5219,8 @@ function App() {
               >
                 {selectionFacet === 'style'
                   ? renderStyleFacetSection()
+                  : selectionFacet === 'move'
+                    ? renderMoveSection()
                   : selectionFacet === 'animate'
                     ? renderAnimationSection()
                     : renderInteractionSection()}
@@ -5408,7 +5657,9 @@ function App() {
                   aria-label={item.label}
                   title={item.label}
                 >
-                  <span className="tool-item-short">{item.shortLabel}</span>
+                  <span className="tool-item-short">
+                    <WorkspaceIcon name={item.iconName} />
+                  </span>
                   {!isLeftCollapsed ? <span className="tool-item-label">{item.label}</span> : null}
                 </button>
               );
@@ -5608,7 +5859,7 @@ function App() {
                     </div>
                   ) : (
                     <div
-                      className={`preview-viewport${isPanningPreview ? ' is-panning' : ''}`}
+                      className={`preview-viewport${isPanningPreview ? ' is-panning' : ''}${isMovingSelection ? ' is-moving-selection' : ''}`}
                       aria-label="Preview viewport"
                       style={{ transform: `translate(${previewViewport.offsetX}px, ${previewViewport.offsetY}px) scale(${previewViewport.scale})` }}
                     >
