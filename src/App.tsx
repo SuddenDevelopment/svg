@@ -1131,7 +1131,7 @@ function App() {
         removeWorkerListeners = null;
 
         if (message.type === 'error') {
-          failAnalysis(new Error(message.message));
+          runFallbackAnalysis();
           return;
         }
 

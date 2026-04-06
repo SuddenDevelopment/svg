@@ -165,6 +165,73 @@ describe('App', () => {
     expect(screen.getByText('Text elements found. Geometry-only exports may need text-to-path conversion.')).toBeInTheDocument();
   });
 
+  it('falls back to main-thread analysis when the background worker cannot access DOMParser', async () => {
+    class WorkerErrorMock {
+      private readonly listeners = new Map<string, Set<(event: MessageEvent) => void>>();
+
+      postMessage(message: { requestId: number }) {
+        queueMicrotask(() => {
+          const event = {
+            data: {
+              type: 'error',
+              requestId: message.requestId,
+              message: 'DOMParser is not defined',
+            },
+          } as MessageEvent;
+          this.listeners.get('message')?.forEach((listener) => listener(event));
+        });
+      }
+
+      addEventListener(type: string, listener: (event: MessageEvent) => void) {
+        const current = this.listeners.get(type) ?? new Set();
+        current.add(listener);
+        this.listeners.set(type, current);
+      }
+
+      removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+        this.listeners.get(type)?.delete(listener);
+      }
+
+      terminate() {
+        this.listeners.clear();
+      }
+    }
+
+    const originalWorker = globalThis.Worker;
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: WorkerErrorMock,
+    });
+
+    try {
+      render(<App />);
+
+      fireEvent.change(screen.getByLabelText('SVG source'), {
+        target: {
+          value: '<svg><g></svg>',
+        },
+      });
+
+      expect(screen.getAllByText('Parse error').length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load Sample' }));
+
+      await waitFor(() => {
+        expect(screen.queryAllByText('Parse error')).toHaveLength(0);
+      });
+
+      ensureInspectorExpanded();
+      expect(screen.getByText('Document stats')).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(globalThis, 'Worker', {
+        configurable: true,
+        writable: true,
+        value: originalWorker,
+      });
+    }
+  });
+
   it('opens the resources modal from the topbar and exposes the resource links', () => {
     render(<App />);
 
