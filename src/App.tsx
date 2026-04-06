@@ -4779,10 +4779,6 @@ function App() {
       <>
         <section className="focus-card section-card workflow-start-card">
           <div className="section-header-inline" data-fit-container>
-            <div>
-              <p className="status-label">Step 1</p>
-              <strong>Start a document</strong>
-            </div>
             <span className="status-label">Open / blank / trace</span>
           </div>
           <p className="section-copy">Begin here: open an SVG, start blank, trace raster artwork, or reload the sample file.</p>
@@ -6126,9 +6122,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="topbar-brand">
-          <p className="eyebrow">Open, clean, export</p>
           <h1>SVG Workbench</h1>
-          <p className="topbar-copy">Start in File to open or trace artwork, then move right through repair and export.</p>
         </div>
         <div className="topbar-actions">
           <button className="ghost-button" type="button" onClick={() => setIsSettingsOpen(true)}>
