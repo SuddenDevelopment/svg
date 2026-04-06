@@ -50,12 +50,14 @@ function createUploadedFontAsset(displayFamilyName = 'Uploaded Workbench'): Uplo
       new opentype.Glyph({ name: 'A', unicode: 65, advanceWidth: 700, path }),
     ],
   });
+  const fontData = font.toArrayBuffer();
 
   return {
     id: 'uploaded-font-1',
     fileName: 'uploaded-workbench.otf',
     familyName: displayFamilyName,
     font,
+    fontData,
   };
 }
 

@@ -22,7 +22,7 @@ export type TranslationMutationResult = {
   skippedPaths: string[];
 };
 
-export type ReorderDirection = 'backward' | 'forward';
+export type ReorderDirection = 'backward' | 'forward' | 'to-back' | 'to-front';
 
 export type ReorderMutationResult = {
   source: string;
@@ -91,6 +91,20 @@ function getElementPathMap(root: SVGSVGElement, targets: Map<string, Element>) {
 
 function reorderChildren(children: Element[], selectedElements: Set<Element>, direction: ReorderDirection) {
   const nextChildren = [...children];
+
+  if (direction === 'to-front') {
+    return [
+      ...nextChildren.filter((child) => !selectedElements.has(child)),
+      ...nextChildren.filter((child) => selectedElements.has(child)),
+    ];
+  }
+
+  if (direction === 'to-back') {
+    return [
+      ...nextChildren.filter((child) => selectedElements.has(child)),
+      ...nextChildren.filter((child) => !selectedElements.has(child)),
+    ];
+  }
 
   if (direction === 'forward') {
     for (let index = nextChildren.length - 2; index >= 0; index -= 1) {

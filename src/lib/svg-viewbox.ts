@@ -31,6 +31,11 @@ export type ViewBoxMutationResult = {
   height: string | null;
 };
 
+type WorkspaceDimensions = {
+  width: number;
+  height: number;
+};
+
 const nonRenderableContainerNames = new Set([
   'clipPath',
   'defs',
@@ -447,14 +452,23 @@ function serializeResult(root: SVGSVGElement, viewBox: string | null, changed: b
   };
 }
 
-export function setViewBoxToWorkspaceArea(source: string): ViewBoxMutationResult {
+export function setViewBoxToWorkspaceArea(source: string, workspaceDimensions?: WorkspaceDimensions | null): ViewBoxMutationResult {
   const root = parseSvgRoot(source);
   const width = parseSvgLength(root.getAttribute('width'));
   const height = parseSvgLength(root.getAttribute('height'));
   const currentViewBox = root.getAttribute('viewBox');
   const fallbackViewBox = parseViewBox(currentViewBox);
 
-  const targetViewBox = width && height
+  const workspaceWidth = workspaceDimensions && Number.isFinite(workspaceDimensions.width) && workspaceDimensions.width > 0
+    ? workspaceDimensions.width
+    : null;
+  const workspaceHeight = workspaceDimensions && Number.isFinite(workspaceDimensions.height) && workspaceDimensions.height > 0
+    ? workspaceDimensions.height
+    : null;
+
+  const targetViewBox = workspaceWidth && workspaceHeight
+    ? formatViewBox({ minX: 0, minY: 0, width: workspaceWidth, height: workspaceHeight })
+    : width && height
     ? formatViewBox({ minX: 0, minY: 0, width, height })
     : fallbackViewBox
       ? formatViewBox(fallbackViewBox)

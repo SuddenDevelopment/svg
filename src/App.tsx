@@ -25,8 +25,8 @@ import {
   type InteractionBehaviorPresetId,
   isAnchorLikeNode,
 } from './lib/svg-interaction';
-import { buildAnalysis, getChangedPreviewNodePaths } from './lib/svg-analysis';
-import type { Analysis } from './lib/svg-analysis';
+import { buildAnalysisFromPreview, buildAnalysisFromPreviewWithOpportunities, buildPreviewSnapshot, getChangedPreviewNodePaths } from './lib/svg-analysis';
+import type { Analysis, PreviewSnapshot } from './lib/svg-analysis';
 import type {
   AnimationDraft,
   AnimationEasing,
@@ -50,7 +50,7 @@ import {
   getExportVariantLabel,
 } from './lib/svg-export';
 import type { ExportVariant } from './lib/svg-export';
-import { parseUploadedFontFile } from './lib/svg-fonts';
+import { parseUploadedFontFile, serializeTextConversionOptions } from './lib/svg-fonts';
 import type { FontMapping, TextConversionOptions, UploadedFontAsset } from './lib/svg-fonts';
 import { clearSvgSource, optimizeSvgSource, prettifySvgSource } from './lib/svg-source';
 import {
@@ -107,6 +107,7 @@ import {
   removeViewBoxFromSource,
   setViewBoxToWorkspaceArea,
 } from './lib/svg-viewbox';
+import type { NormalizationWorkerMessage, NormalizationWorkerRequest } from './lib/svg-normalization-worker-types';
 
 type WorkspaceIconName =
   | 'file'
@@ -147,6 +148,11 @@ type PreviewViewport = {
   offsetY: number;
 };
 
+type PreviewWorkspaceDimensions = {
+  width: number;
+  height: number;
+};
+
 type SourceSelection = {
   start: number;
   end: number;
@@ -156,6 +162,15 @@ type SourceCommitSelectionState = {
   selectedPaths?: string[];
   inspectedPath?: string | null;
   activeAnimationTargetPath?: string | null;
+};
+
+type AnalysisSchedulingMode = 'immediate' | 'deferred';
+
+type ProcessIndicator = {
+  id: string;
+  label: string;
+  detail: string;
+  progress: number | null;
 };
 
 function WorkspaceIcon({ name }: { name: WorkspaceIconName }) {
@@ -402,6 +417,38 @@ const defaultInspectorTabBySection: Record<WorkspaceSection, InspectorTab> = {
   file: 'overview',
   repair: 'overview',
   export: 'overview',
+};
+
+const reorderDirectionCopy: Record<ReorderDirection, {
+  action: string;
+  boundary: string;
+  completed: string;
+  verb: string;
+}> = {
+  backward: {
+    action: 'Send backward',
+    boundary: 'back',
+    completed: 'backward',
+    verb: 'Sent',
+  },
+  forward: {
+    action: 'Bring forward',
+    boundary: 'front',
+    completed: 'forward',
+    verb: 'Brought',
+  },
+  'to-back': {
+    action: 'Send to back',
+    boundary: 'back',
+    completed: 'to back',
+    verb: 'Sent',
+  },
+  'to-front': {
+    action: 'Bring to front',
+    boundary: 'front',
+    completed: 'to front',
+    verb: 'Brought',
+  },
 };
 
 const selectionFacetLabels: Record<SelectionFacet, string> = {
@@ -786,6 +833,56 @@ function getRightPanelToggleIcon(mode: RightPanelMode) {
   return mode === 'half' ? '>' : '<';
 }
 
+function scheduleDeferredAnalysis(callback: () => void) {
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    const idleId = window.requestIdleCallback(callback, { timeout: 400 });
+    return () => window.cancelIdleCallback(idleId);
+  }
+
+  const timeoutId = window.setTimeout(callback, 40);
+  return () => window.clearTimeout(timeoutId);
+}
+
+function ProcessIndicatorLane({ processes }: { processes: ProcessIndicator[] }) {
+  if (processes.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="process-indicator-lane" aria-live="polite">
+      {processes.map((process) => {
+        const isDeterminate = typeof process.progress === 'number';
+        const boundedProgress = isDeterminate
+          ? Math.max(0.04, Math.min(1, process.progress ?? 0))
+          : null;
+
+        return (
+          <div key={process.id} className="process-indicator-card">
+            <div className="process-indicator-copy">
+              <strong>{process.label}</strong>
+              <span>{process.detail}</span>
+            </div>
+            <div
+              className="process-indicator-track"
+              role="progressbar"
+              aria-label={process.label}
+              aria-valuemin={isDeterminate ? 0 : undefined}
+              aria-valuemax={isDeterminate ? 100 : undefined}
+              aria-valuenow={isDeterminate ? Math.round((boundedProgress ?? 0) * 100) : undefined}
+              aria-valuetext={process.detail}
+            >
+              <span
+                className={`process-indicator-bar${isDeterminate ? '' : ' indeterminate'}`}
+                style={isDeterminate ? { transform: `scaleX(${boundedProgress})` } : undefined}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function syncFitContainers(root: ParentNode | null) {
   if (!root) {
     return;
@@ -836,6 +933,8 @@ function App() {
   } | null>(null);
   const suppressPreviewClickRef = useRef(false);
   const initialSelectionAppearanceRef = useRef<ReturnType<typeof readStoredSelectionAppearance> | null>(null);
+  const normalizationWorkerRef = useRef<Worker | null>(null);
+  const normalizationRequestIdRef = useRef(0);
 
   if (initialSelectionAppearanceRef.current === null) {
     initialSelectionAppearanceRef.current = readStoredSelectionAppearance();
@@ -845,7 +944,11 @@ function App() {
   const [fileName, setFileName] = useState('sample.svg');
   const [previewTab, setPreviewTab] = useState<PreviewTab>('preview');
   const [previewViewport, setPreviewViewport] = useState<PreviewViewport>(DEFAULT_PREVIEW_VIEWPORT);
+  const [previewSnapshot, setPreviewSnapshot] = useState<PreviewSnapshot | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [isAnalysisPending, setIsAnalysisPending] = useState(false);
+  const [analysisProgressLabel, setAnalysisProgressLabel] = useState('');
+  const [analysisProgressValue, setAnalysisProgressValue] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedPreviewNodeIds, setSelectedPreviewNodeIds] = useState<string[]>([]);
   const [activeAnimationTargetPath, setActiveAnimationTargetPath] = useState<string | null>(null);
@@ -888,6 +991,10 @@ function App() {
   const [rasterTraceSettings, setRasterTraceSettings] = useState<RasterTraceSettings>(() => createRasterTraceSettings());
   const [rasterTraceMessage, setRasterTraceMessage] = useState<string | null>(null);
   const [isTracingRaster, setIsTracingRaster] = useState(false);
+  const [isUploadingFonts, setIsUploadingFonts] = useState(false);
+  const [fontUploadCompleted, setFontUploadCompleted] = useState(0);
+  const [fontUploadTotal, setFontUploadTotal] = useState(0);
+  const [pendingPngSnapshotVariant, setPendingPngSnapshotVariant] = useState<ExportVariant | null>(null);
   const [exportReport, setExportReport] = useState<ExportReport | null>(null);
   const [selectedExportPreset, setSelectedExportPreset] = useState<ExportVariant>('safe');
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFontAsset[]>([]);
@@ -905,6 +1012,7 @@ function App() {
   const [isOverviewInventoryExpanded, setIsOverviewInventoryExpanded] = useState(false);
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('collapsed');
+  const [analysisSchedulingMode, setAnalysisSchedulingMode] = useState<AnalysisSchedulingMode>('immediate');
   const deferredSource = useDeferredValue(source);
   const resolvedTheme = resolveThemePreference(themePreference, systemPrefersDark);
   const textOptions: TextConversionOptions = {
@@ -914,15 +1022,170 @@ function App() {
   const isRightCollapsed = rightPanelMode === 'collapsed';
 
   useEffect(() => {
+    if (typeof Worker === 'undefined') {
+      return;
+    }
+
+    const nextWorker = new Worker(new URL('./lib/svg-normalization.worker.ts', import.meta.url), { type: 'module' });
+    normalizationWorkerRef.current = nextWorker;
+
+    return () => {
+      nextWorker.terminate();
+      if (normalizationWorkerRef.current === nextWorker) {
+        normalizationWorkerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     try {
-      const nextAnalysis = buildAnalysis(deferredSource, fileName, textOptions);
-      setAnalysis(nextAnalysis);
+      const nextPreviewSnapshot = buildPreviewSnapshot(deferredSource);
+      setPreviewSnapshot(nextPreviewSnapshot);
+
+      if (analysisSchedulingMode === 'immediate') {
+        const nextAnalysis = buildAnalysisFromPreview(deferredSource, fileName, nextPreviewSnapshot, textOptions);
+        setAnalysis(nextAnalysis);
+        setIsAnalysisPending(false);
+        setAnalysisProgressLabel('');
+        setAnalysisProgressValue(null);
+      }
+
       setParseError(null);
     } catch (error) {
+      setPreviewSnapshot(null);
       setAnalysis(null);
+      setIsAnalysisPending(false);
+      setAnalysisProgressLabel('');
+      setAnalysisProgressValue(null);
       setParseError(error instanceof Error ? error.message : 'Unable to parse SVG markup.');
     }
-  }, [deferredSource, fileName, uploadedFonts, fontMappings]);
+  }, [analysisSchedulingMode, deferredSource, fileName, fontMappings, uploadedFonts]);
+
+  useEffect(() => {
+    if (analysisSchedulingMode !== 'deferred' || !previewSnapshot) {
+      return;
+    }
+
+    let cancelled = false;
+    let removeWorkerListeners: (() => void) | null = null;
+    const requestId = normalizationRequestIdRef.current + 1;
+    normalizationRequestIdRef.current = requestId;
+
+    const finalizeAnalysis = (nextAnalysis: Analysis) => {
+      if (cancelled) {
+        return;
+      }
+
+      setAnalysis(nextAnalysis);
+      setParseError(null);
+      setIsAnalysisPending(false);
+      setAnalysisProgressLabel('');
+      setAnalysisProgressValue(null);
+    };
+
+    const failAnalysis = (error: unknown) => {
+      if (cancelled) {
+        return;
+      }
+
+      setAnalysis((current) => (analysisSchedulingMode === 'deferred' ? null : current));
+      setParseError(error instanceof Error ? error.message : 'Unable to parse SVG markup.');
+      setIsAnalysisPending(false);
+      setAnalysisProgressLabel('');
+      setAnalysisProgressValue(null);
+    };
+
+    const runFallbackAnalysis = () => {
+      try {
+        const nextAnalysis = buildAnalysisFromPreview(deferredSource, fileName, previewSnapshot, textOptions);
+        finalizeAnalysis(nextAnalysis);
+      } catch (error) {
+        failAnalysis(error);
+      }
+    };
+
+    const startAnalysis = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const worker = normalizationWorkerRef.current;
+      if (!worker) {
+        runFallbackAnalysis();
+        return;
+      }
+
+      const handleWorkerMessage = (event: MessageEvent<NormalizationWorkerMessage>) => {
+        const message = event.data;
+        if (!message || message.requestId !== requestId) {
+          return;
+        }
+
+        if (message.type === 'progress') {
+          setAnalysisProgressLabel(message.label);
+          setAnalysisProgressValue(message.progress);
+          return;
+        }
+
+        removeWorkerListeners?.();
+        removeWorkerListeners = null;
+
+        if (message.type === 'error') {
+          failAnalysis(new Error(message.message));
+          return;
+        }
+
+        try {
+          setAnalysisProgressLabel('Finalizing readiness summaries');
+          setAnalysisProgressValue(0.92);
+          const nextAnalysis = buildAnalysisFromPreviewWithOpportunities(
+            deferredSource,
+            fileName,
+            previewSnapshot,
+            message.opportunities,
+          );
+          finalizeAnalysis(nextAnalysis);
+        } catch (error) {
+          failAnalysis(error);
+        }
+      };
+
+      const handleWorkerError = () => {
+        removeWorkerListeners?.();
+        removeWorkerListeners = null;
+        runFallbackAnalysis();
+      };
+
+      removeWorkerListeners = () => {
+        worker.removeEventListener('message', handleWorkerMessage as EventListener);
+        worker.removeEventListener('error', handleWorkerError);
+      };
+
+      worker.addEventListener('message', handleWorkerMessage as EventListener);
+      worker.addEventListener('error', handleWorkerError);
+
+      const request: NormalizationWorkerRequest = {
+        type: 'analyze',
+        requestId,
+        source: deferredSource,
+        options: serializeTextConversionOptions(textOptions),
+      };
+      worker.postMessage(request);
+    };
+
+    setAnalysis(null);
+    setIsAnalysisPending(true);
+    setAnalysisProgressLabel('Preparing background analysis');
+    setAnalysisProgressValue(0.08);
+
+    const cancelScheduledStart = scheduleDeferredAnalysis(startAnalysis);
+
+    return () => {
+      cancelled = true;
+      cancelScheduledStart?.();
+      removeWorkerListeners?.();
+    };
+  }, [analysisSchedulingMode, deferredSource, fileName, fontMappings, previewSnapshot, uploadedFonts]);
 
   useEffect(() => {
     if (parseError) {
@@ -1025,7 +1288,7 @@ function App() {
 
   useEffect(() => {
     previewHitCycleRef.current = null;
-  }, [analysis?.previewMarkup, previewTab]);
+  }, [previewSnapshot?.markup, previewTab]);
 
   useLayoutEffect(() => {
     setPreviewTimelineSeconds(0);
@@ -1043,7 +1306,7 @@ function App() {
 
     timelineSvg.setCurrentTime?.(0);
     timelineSvg.pauseAnimations?.();
-  }, [analysis?.previewMarkup, previewTab]);
+  }, [previewSnapshot?.markup, previewTab]);
 
   useEffect(() => {
     if (previewTimelineIntervalRef.current !== null) {
@@ -1352,9 +1615,49 @@ function App() {
     : 0;
   const statusSummary = analysis
     ? `${analysis.totalElements} elements • ${analysis.exportReadiness.autoFixCount} auto-fixable • ${analysis.exportReadiness.blockerCount} blocked`
+    : isAnalysisPending && previewSnapshot
+      ? 'Preview loaded • analysis in progress'
     : parseError
       ? 'Invalid SVG markup'
       : 'Load an SVG to begin';
+  const activeProcesses: ProcessIndicator[] = [
+    ...(isAnalysisPending && analysisSchedulingMode === 'deferred'
+      ? [{
+          id: 'analysis',
+          label: 'Analyzing imported SVG',
+          detail: analysisProgressLabel || 'Scanning normalization opportunities in the background worker',
+          progress: analysisProgressValue,
+        }]
+      : []),
+    ...(isTracingRaster
+      ? [{
+          id: 'trace',
+          label: 'Tracing raster artwork',
+          detail: rasterTraceAsset
+            ? `Converting ${rasterTraceAsset.fileName} into SVG paths with the active trace preset`
+            : 'Converting the queued raster source into SVG geometry',
+          progress: null,
+        }]
+      : []),
+    ...(isUploadingFonts
+      ? [{
+          id: 'fonts',
+          label: 'Parsing uploaded fonts',
+          detail: fontUploadTotal > 0
+            ? `Processed ${fontUploadCompleted} of ${fontUploadTotal} uploaded font${fontUploadTotal === 1 ? '' : 's'}`
+            : 'Preparing uploaded font files for text analysis',
+          progress: fontUploadTotal > 0 ? fontUploadCompleted / fontUploadTotal : null,
+        }]
+      : []),
+    ...(pendingPngSnapshotVariant
+      ? [{
+          id: 'png-snapshot',
+          label: 'Rendering PNG snapshot',
+          detail: `${getPngSnapshotLabel(pendingPngSnapshotVariant)} is being rasterized in the browser`,
+          progress: null,
+        }]
+      : []),
+  ];
 
   useEffect(() => {
     if (authorableSelectionPaths.length === 0) {
@@ -1421,6 +1724,7 @@ function App() {
   function loadSvgSource(nextSource: string, nextFileName: string) {
     setSource(nextSource);
     setFileName(nextFileName);
+    setAnalysisSchedulingMode('deferred');
     setPreviewTab('preview');
     setPreviewViewport(DEFAULT_PREVIEW_VIEWPORT);
     setHoveredPreviewNodeIds([]);
@@ -1603,6 +1907,38 @@ function App() {
     });
   }
 
+  function parseSvgDimension(value: string | null | undefined) {
+    if (!value) {
+      return null;
+    }
+
+    const match = value.trim().match(/^([+-]?\d*\.?\d+(?:e[-+]?\d+)?)/i);
+    if (!match) {
+      return null;
+    }
+
+    const parsedValue = Number(match[1]);
+    return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+  }
+
+  function getPreviewWorkspaceDimensions(): PreviewWorkspaceDimensions | null {
+    const previewFrame = previewFrameRef.current;
+    if (!previewFrame) {
+      return null;
+    }
+
+    const previewFrameRect = previewFrame.getBoundingClientRect();
+    const scale = Math.max(0.01, previewViewport.scale);
+    const width = Number((previewFrameRect.width / scale).toFixed(3));
+    const height = Number((previewFrameRect.height / scale).toFixed(3));
+
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+
+    return { width, height };
+  }
+
   function convertClientDeltaToSvgDelta(clientDeltaX: number, clientDeltaY: number) {
     const previewSvg = getPreviewSvgElement();
     const fallbackScale = Math.max(0.01, previewViewport.scale);
@@ -1617,8 +1953,16 @@ function App() {
 
     const previewRect = previewSvg.getBoundingClientRect();
     const viewBox = previewSvg.viewBox?.baseVal;
-  const svgWidth = viewBox && viewBox.width > 0 ? viewBox.width : Number(analysis?.width ?? 0);
-  const svgHeight = viewBox && viewBox.height > 0 ? viewBox.height : Number(analysis?.height ?? 0);
+    const svgWidth = viewBox && viewBox.width > 0
+      ? viewBox.width
+      : previewSvg.width?.baseVal?.value && previewSvg.width.baseVal.value > 0
+        ? previewSvg.width.baseVal.value
+        : parseSvgDimension(previewSvg.getAttribute('width')) ?? parseSvgDimension(analysis?.width) ?? 0;
+    const svgHeight = viewBox && viewBox.height > 0
+      ? viewBox.height
+      : previewSvg.height?.baseVal?.value && previewSvg.height.baseVal.value > 0
+        ? previewSvg.height.baseVal.value
+        : parseSvgDimension(previewSvg.getAttribute('height')) ?? parseSvgDimension(analysis?.height) ?? 0;
 
     if (previewRect.width <= 0 || previewRect.height <= 0 || svgWidth <= 0 || svgHeight <= 0) {
       return fallback;
@@ -1660,7 +2004,7 @@ function App() {
 
   function applyWorkspaceViewBox() {
     try {
-      const result = setViewBoxToWorkspaceArea(source);
+      const result = setViewBoxToWorkspaceArea(source, getPreviewWorkspaceDimensions());
       commitRepairSource(
         result.source,
         result.changed
@@ -1721,8 +2065,8 @@ function App() {
     }
 
     try {
-      const nextAnalysis = buildAnalysis(nextSource, fileName, textOptions);
-      const nodeIdByPath = new Map(Object.values(nextAnalysis.nodesById).map((node) => [node.path, node.id]));
+      const nextPreviewSnapshot = buildPreviewSnapshot(nextSource);
+      const nodeIdByPath = new Map(Object.values(nextPreviewSnapshot.nodesById).map((node) => [node.path, node.id]));
       const nextSelectedNodeIds = (nextSelectionState.selectedPaths ?? [])
         .map((path) => nodeIdByPath.get(path))
         .filter((nodeId): nodeId is string => Boolean(nodeId));
@@ -1752,6 +2096,7 @@ function App() {
     }
 
     try {
+      const copy = reorderDirectionCopy[direction];
       const result = reorderElementsInSource(source, authorableSelectionPaths, direction);
       const nextSelectedPaths = authorableSelectionPaths.map((path) => result.pathMap[path] ?? path);
       const inspectedPath = selectedNode && selectedNode.id !== analysis?.rootNodeId
@@ -1764,8 +2109,8 @@ function App() {
       commitRepairSource(
         result.source,
         result.updatedCount > 0
-          ? `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${direction} in display order.`
-          : `The selected elements were already as far ${direction === 'forward' ? 'forward' : 'back'} as they can go.`,
+          ? `${copy.action} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} in display order.`
+          : `The selected elements were already at the ${copy.boundary} of the display order.`,
         {
           selectedPaths: nextSelectedPaths,
           inspectedPath,
@@ -1774,10 +2119,10 @@ function App() {
       );
       setMoveMessage(
         result.skippedPaths.length > 0
-          ? `Moved ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${direction} in display order and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
+          ? `${copy.action} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} in display order and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
           : result.updatedCount > 0
-            ? `${direction === 'forward' ? 'Brought' : 'Sent'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${direction === 'forward' ? 'forward' : 'backward'} in display order.`
-            : `The selected elements were already as far ${direction === 'forward' ? 'forward' : 'back'} as they can go.`,
+            ? `${copy.verb} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} ${copy.completed} in display order.`
+            : `The selected elements were already at the ${copy.boundary} of the display order.`,
       );
     } catch (error) {
       setMoveMessage(error instanceof Error ? error.message : 'Unable to change the selected element display order.');
@@ -1788,6 +2133,7 @@ function App() {
     setRecentChangePaths(getChangedPreviewNodePaths(source, nextSource));
     setHoveredPreviewNodeIds([]);
     syncSelectionStateForSource(nextSource, nextSelectionState);
+    setAnalysisSchedulingMode('immediate');
     setSource(nextSource);
     setRepairMessage(message);
     setSourceActionMessage(null);
@@ -1795,6 +2141,7 @@ function App() {
   }
 
   function commitSourceAction(nextSource: string, message: string) {
+    setAnalysisSchedulingMode('immediate');
     setSource(nextSource);
     setRecentChangePaths([]);
     setHoveredPreviewNodeIds([]);
@@ -1862,30 +2209,41 @@ function App() {
       return;
     }
 
+    setIsUploadingFonts(true);
+    setFontUploadCompleted(0);
+    setFontUploadTotal(files.length);
+
     const loadedFonts: UploadedFontAsset[] = [];
     const failedFonts: string[] = [];
 
-    for (const file of files) {
-      try {
-        loadedFonts.push(await parseUploadedFontFile(file));
-      } catch {
-        failedFonts.push(file.name);
+    try {
+      for (const [index, file] of files.entries()) {
+        try {
+          loadedFonts.push(await parseUploadedFontFile(file));
+        } catch {
+          failedFonts.push(file.name);
+        } finally {
+          setFontUploadCompleted(index + 1);
+        }
       }
-    }
 
-    if (loadedFonts.length > 0) {
-      setUploadedFonts((current) => [...current, ...loadedFonts]);
-    }
+      if (loadedFonts.length > 0) {
+        setUploadedFonts((current) => [...current, ...loadedFonts]);
+      }
 
-    if (loadedFonts.length > 0 && failedFonts.length > 0) {
-      setRepairMessage(`Loaded ${loadedFonts.length} font${loadedFonts.length === 1 ? '' : 's'} and skipped ${failedFonts.length} unsupported file${failedFonts.length === 1 ? '' : 's'}.`);
-    } else if (loadedFonts.length > 0) {
-      setRepairMessage(`Loaded ${loadedFonts.length} font${loadedFonts.length === 1 ? '' : 's'} for text conversion.`);
-    } else {
-      setRepairMessage(`Unable to parse ${failedFonts.length} uploaded font file${failedFonts.length === 1 ? '' : 's'}.`);
+      if (loadedFonts.length > 0 && failedFonts.length > 0) {
+        setRepairMessage(`Loaded ${loadedFonts.length} font${loadedFonts.length === 1 ? '' : 's'} and skipped ${failedFonts.length} unsupported file${failedFonts.length === 1 ? '' : 's'}.`);
+      } else if (loadedFonts.length > 0) {
+        setRepairMessage(`Loaded ${loadedFonts.length} font${loadedFonts.length === 1 ? '' : 's'} for text conversion.`);
+      } else {
+        setRepairMessage(`Unable to parse ${failedFonts.length} uploaded font file${failedFonts.length === 1 ? '' : 's'}.`);
+      }
+    } finally {
+      setIsUploadingFonts(false);
+      setFontUploadCompleted(0);
+      setFontUploadTotal(0);
+      event.target.value = '';
     }
-
-    event.target.value = '';
   }
 
   function removeUploadedFont(fontId: string) {
@@ -2289,6 +2647,7 @@ function App() {
     }
 
     try {
+      setPendingPngSnapshotVariant(variant);
       const snapshot = await createPngSnapshot(exportSource);
       downloadBlob(snapshot.blob, nextFileName);
       setExportReport({
@@ -2304,6 +2663,8 @@ function App() {
       setRepairMessage(`Downloaded ${nextFileName} as a ${snapshot.width} x ${snapshot.height} PNG snapshot${changeCopy}.`);
     } catch (error) {
       setRepairMessage(error instanceof Error ? error.message : 'Unable to render a PNG snapshot in this browser context.');
+    } finally {
+      setPendingPngSnapshotVariant(null);
     }
   }
 
@@ -3213,9 +3574,11 @@ function App() {
     }
   }
 
-  function toggleSelectedElementVisibility() {
+  function toggleSelectedElementVisibility(feedbackTarget: 'move' | 'style' = 'style') {
+    const setMessage = feedbackTarget === 'move' ? setMoveMessage : setStyleMessage;
+
     if (authorableSelectionPaths.length === 0) {
-      setStyleMessage('Select at least one preview element to hide or unhide it.');
+      setMessage('Select at least one preview element to hide or unhide it.');
       return;
     }
 
@@ -3229,13 +3592,13 @@ function App() {
           ? `${shouldHide ? 'Hid' : 'Unhid'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`
           : `The selected elements were already ${shouldHide ? 'hidden' : 'visible'}.`,
       );
-      setStyleMessage(
+      setMessage(
         result.skippedPaths.length > 0
           ? `${shouldHide ? 'Hid' : 'Unhid'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'} and skipped ${result.skippedPaths.length} unresolved selection${result.skippedPaths.length === 1 ? '' : 's'}.`
           : `${shouldHide ? 'Hidden' : 'Unhidden'} ${result.updatedCount} selected element${result.updatedCount === 1 ? '' : 's'}.`,
       );
     } catch (error) {
-      setStyleMessage(error instanceof Error ? error.message : 'Unable to update selected element visibility.');
+      setMessage(error instanceof Error ? error.message : 'Unable to update selected element visibility.');
     }
   }
 
@@ -3265,12 +3628,41 @@ function App() {
             <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds([])} disabled={authorableSelectionPaths.length === 0}>
               Clear selection
             </button>
-            <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('backward')} disabled={authorableSelectionPaths.length === 0}>
-              Send backward
-            </button>
-            <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('forward')} disabled={authorableSelectionPaths.length === 0}>
-              Bring forward
-            </button>
+          </div>
+          <div className="move-action-groups">
+            <section className="move-action-group" aria-label="Layer order controls">
+              <div className="section-header-inline" data-fit-container>
+                <h4>Layer order</h4>
+                <span className="status-label">Reorder</span>
+              </div>
+              <p className="section-copy">Keep all display-order actions together so you can step or jump the current selection through the stack.</p>
+              <div className="move-action-grid" role="group" aria-label="Layer order actions">
+                <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('to-back')} disabled={authorableSelectionPaths.length === 0}>
+                  Send to back
+                </button>
+                <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('backward')} disabled={authorableSelectionPaths.length === 0}>
+                  Send backward
+                </button>
+                <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('forward')} disabled={authorableSelectionPaths.length === 0}>
+                  Bring forward
+                </button>
+                <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('to-front')} disabled={authorableSelectionPaths.length === 0}>
+                  Bring to front
+                </button>
+              </div>
+            </section>
+            <section className="move-action-group" aria-label="Selection visibility controls">
+              <div className="section-header-inline" data-fit-container>
+                <h4>Visibility</h4>
+                <span className="status-label">Quick toggle</span>
+              </div>
+              <p className="section-copy">Show or hide the current selection without switching away from move mode.</p>
+              <div className="move-action-grid" role="group" aria-label="Selection visibility actions">
+                <button className="ghost-button" type="button" onClick={() => toggleSelectedElementVisibility('move')} disabled={authorableSelectionPaths.length === 0}>
+                  {areAllSelectedElementsHidden ? 'Show selected' : 'Hide selected'}
+                </button>
+              </div>
+            </section>
           </div>
           <div className="move-viewbox-actions" role="group" aria-label="ViewBox actions">
             <button className="ghost-button" type="button" onClick={applyWorkspaceViewBox}>
@@ -4141,7 +4533,7 @@ function App() {
             <button
               className="ghost-button"
               type="button"
-              onClick={toggleSelectedElementVisibility}
+              onClick={() => toggleSelectedElementVisibility('style')}
               disabled={authorableSelectionPaths.length === 0}
             >
               {areAllSelectedElementsHidden ? 'Unhide selected' : 'Hide selected'}
@@ -4638,6 +5030,7 @@ function App() {
             className="source-editor"
             value={source}
             onChange={(event) => {
+              setAnalysisSchedulingMode('immediate');
               setSource(event.target.value);
               setRecentChangePaths([]);
               setHoveredPreviewNodeIds([]);
@@ -5986,6 +6379,8 @@ function App() {
               </div>
             </div>
 
+            <ProcessIndicatorLane processes={activeProcesses} />
+
             <div
               id={getPreviewTabPanelId()}
               className={`preview-surface ${isDragging ? 'is-dragging' : ''}`}
@@ -6028,7 +6423,7 @@ function App() {
                         className="svg-preview-frame"
                         data-selection-style={selectionAppearancePreset}
                         style={selectionAppearanceStyle}
-                        dangerouslySetInnerHTML={{ __html: analysis?.previewMarkup ?? '' }}
+                        dangerouslySetInnerHTML={{ __html: previewSnapshot?.markup ?? analysis?.previewMarkup ?? '' }}
                       />
                     </div>
                   )

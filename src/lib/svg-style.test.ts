@@ -46,6 +46,34 @@ describe('reorderElementsInSource', () => {
     expect(result.source).toContain('<rect id="middle"/><rect id="rear"/><rect id="front"/>');
   });
 
+  it('moves selected elements to the front while preserving their relative order', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect id="rear"/><rect id="middle"/><rect id="front"/></svg>';
+
+    const result = reorderElementsInSource(source, ['0.0', '0.1'], 'to-front');
+
+    expect(result.updatedCount).toBe(2);
+    expect(result.skippedPaths).toEqual([]);
+    expect(result.pathMap).toEqual({
+      '0.0': '0.1',
+      '0.1': '0.2',
+    });
+    expect(result.source).toContain('<rect id="front"/><rect id="rear"/><rect id="middle"/>');
+  });
+
+  it('moves selected elements to the back while preserving their relative order', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect id="rear"/><rect id="middle"/><rect id="front"/></svg>';
+
+    const result = reorderElementsInSource(source, ['0.1', '0.2'], 'to-back');
+
+    expect(result.updatedCount).toBe(2);
+    expect(result.skippedPaths).toEqual([]);
+    expect(result.pathMap).toEqual({
+      '0.1': '0.0',
+      '0.2': '0.1',
+    });
+    expect(result.source).toContain('<rect id="middle"/><rect id="front"/><rect id="rear"/>');
+  });
+
   it('moves selected siblings backward together while preserving their relative order', () => {
     const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect id="a" /><rect id="b" /><rect id="c" /><rect id="d" /></svg>';
 

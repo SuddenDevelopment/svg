@@ -106,6 +106,8 @@ export type Analysis = {
   };
 };
 
+export type AnalysisOpportunities = Analysis['opportunities'];
+
 type SanitizedPreview = {
   markup: string;
   warnings: string[];
@@ -113,6 +115,8 @@ type SanitizedPreview = {
   rootNodeId: string;
   sanitizedRoot: SVGSVGElement;
 };
+
+export type PreviewSnapshot = SanitizedPreview;
 
 function getLocalTagName(element: Element) {
   return element.localName || element.tagName.split(':').at(-1) || element.tagName;
@@ -688,6 +692,62 @@ export function sanitizeSvgElement(svgElement: SVGSVGElement): SanitizedPreview 
   };
 }
 
+export function buildPreviewSnapshot(source: string): PreviewSnapshot {
+  return sanitizeSvgElement(parseSvgRoot(source));
+}
+
+function buildAnalysisFromPreviewWithOpportunities(
+  source: string,
+  fileName: string,
+  preview: PreviewSnapshot,
+  opportunities: AnalysisOpportunities,
+): Analysis {
+  const svgElement = preview.sanitizedRoot;
+  const { tagCounts, totalElements } = collectTagCounts(svgElement);
+  const risks = buildRiskList(svgElement, tagCounts, opportunities);
+  const exportReadiness = buildExportReadiness(tagCounts, opportunities);
+  const runtimeFeatures = collectRuntimeFeatures(svgElement);
+  const inventory = collectInventory(svgElement);
+  const authoringMetadata = collectAuthoringMetadata(svgElement);
+  const workflowReadiness = buildWorkflowReadiness(exportReadiness, runtimeFeatures, preview.warnings, opportunities);
+
+  return {
+    fileName,
+    sourceLength: source.length,
+    rootName: getLocalTagName(svgElement),
+    viewBox: svgElement.getAttribute('viewBox') ?? 'none',
+    width: svgElement.getAttribute('width') ?? 'auto',
+    height: svgElement.getAttribute('height') ?? 'auto',
+    totalElements,
+    tagCounts,
+    previewMarkup: preview.markup,
+    warnings: preview.warnings,
+    risks,
+    exportReadiness,
+    workflowReadiness,
+    runtimeFeatures,
+    inventory,
+    authoringMetadata,
+    nodesById: preview.nodesById,
+    rootNodeId: preview.rootNodeId,
+    opportunities,
+  };
+}
+
+function buildAnalysisFromPreview(
+  source: string,
+  fileName: string,
+  preview: PreviewSnapshot,
+  textOptions: TextConversionOptions = {},
+): Analysis {
+  return buildAnalysisFromPreviewWithOpportunities(
+    source,
+    fileName,
+    preview,
+    detectNormalizationOpportunities(source, textOptions),
+  );
+}
+
 function getNodeSignature(node: SvgNodeSummary) {
   const attributeSignature = Object.entries(node.attributes)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -731,47 +791,7 @@ export function getChangedPreviewNodePaths(previousSource: string, nextSource: s
 }
 
 export function buildAnalysis(source: string, fileName: string, textOptions: TextConversionOptions = {}): Analysis {
-  const documentRoot = new DOMParser().parseFromString(source, 'image/svg+xml');
-  const parserError = documentRoot.querySelector('parsererror');
-  if (parserError) {
-    throw new Error(parserError.textContent?.trim() || 'Unable to parse SVG markup.');
-  }
-
-  const documentElement = documentRoot.documentElement;
-  if (getLocalTagName(documentElement).toLowerCase() !== 'svg') {
-    throw new Error('The provided markup does not have an <svg> root element.');
-  }
-  const svgElement = documentElement as unknown as SVGSVGElement;
-
-  const preview = sanitizeSvgElement(svgElement);
-  const opportunities = detectNormalizationOpportunities(source, textOptions);
-  const { tagCounts, totalElements } = collectTagCounts(preview.sanitizedRoot);
-  const risks = buildRiskList(preview.sanitizedRoot, tagCounts, opportunities);
-  const exportReadiness = buildExportReadiness(tagCounts, opportunities);
-  const runtimeFeatures = collectRuntimeFeatures(preview.sanitizedRoot);
-  const inventory = collectInventory(preview.sanitizedRoot);
-  const authoringMetadata = collectAuthoringMetadata(preview.sanitizedRoot);
-  const workflowReadiness = buildWorkflowReadiness(exportReadiness, runtimeFeatures, preview.warnings, opportunities);
-
-  return {
-    fileName,
-    sourceLength: source.length,
-    rootName: getLocalTagName(svgElement),
-    viewBox: svgElement.getAttribute('viewBox') ?? 'none',
-    width: svgElement.getAttribute('width') ?? 'auto',
-    height: svgElement.getAttribute('height') ?? 'auto',
-    totalElements,
-    tagCounts,
-    previewMarkup: preview.markup,
-    warnings: preview.warnings,
-    risks,
-    exportReadiness,
-    workflowReadiness,
-    runtimeFeatures,
-    inventory,
-    authoringMetadata,
-    nodesById: preview.nodesById,
-    rootNodeId: preview.rootNodeId,
-    opportunities,
-  };
+  return buildAnalysisFromPreview(source, fileName, buildPreviewSnapshot(source), textOptions);
 }
+
+export { buildAnalysisFromPreview, buildAnalysisFromPreviewWithOpportunities };

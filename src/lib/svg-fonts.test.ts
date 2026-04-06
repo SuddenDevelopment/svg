@@ -36,5 +36,7 @@ describe('parseUploadedFontFile', () => {
     expect(fontAsset.fileName).toBe('uploaded-workbench.otf');
     expect(fontAsset.familyName).toBe('Uploaded Workbench');
     expect(fontAsset.id).toBeTruthy();
+    expect(fontAsset.fontData).toBeInstanceOf(ArrayBuffer);
+    expect(fontAsset.fontData?.byteLength).toBeGreaterThan(0);
   });
 });

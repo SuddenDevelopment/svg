@@ -427,6 +427,78 @@ describe('App', () => {
     }
   });
 
+  it('supports send to back and bring to front from the move tool', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="rear" x="0" y="0" width="20" height="20" /><rect id="middle" x="0" y="0" width="20" height="20" /><rect id="front" x="0" y="0" width="20" height="20" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRects = container.querySelectorAll('.svg-preview-frame svg rect');
+    const rearRect = previewRects[0] ?? null;
+    const middleRect = previewRects[1] ?? null;
+    const frontRect = previewRects[2] ?? null;
+    expect(rearRect).not.toBeNull();
+    expect(middleRect).not.toBeNull();
+    expect(frontRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+    const originalElementsFromPoint = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => rearRect),
+      });
+      Object.defineProperty(document, 'elementsFromPoint', {
+        configurable: true,
+        value: vi.fn(() => [rearRect, middleRect, frontRect]),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 81, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 81, clientX: 24, clientY: 18 });
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 82, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 82, clientX: 24, clientY: 18 });
+
+      await waitFor(() => {
+        expect(container.querySelector('.svg-preview-frame [data-svg-node-selected="true"]')?.getAttribute('id')).toBe('middle');
+      });
+
+      openSelectionTool('Move');
+      fireEvent.click(screen.getByRole('button', { name: 'Bring to front' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Brought 1 selected element to front in display order.')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send to back' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Sent 1 selected element to back in display order.')).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+      const sourceValue = (screen.getByLabelText('SVG source') as HTMLTextAreaElement).value;
+      expect(sourceValue.indexOf('id="middle"')).toBeLessThan(sourceValue.indexOf('id="rear"'));
+      expect(sourceValue.indexOf('id="rear"')).toBeLessThan(sourceValue.indexOf('id="front"'));
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+
+      if (originalElementsFromPoint) {
+        Object.defineProperty(document, 'elementsFromPoint', originalElementsFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementsFromPoint');
+      }
+    }
+  });
+
   it('sets the root viewBox to the workspace area from the move tool', async () => {
     render(<App />);
 
@@ -445,6 +517,45 @@ describe('App', () => {
 
     openWorkspaceSection('File');
     expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('viewBox="0 0 320 180"');
+  });
+
+  it('uses the live preview workspace size when fitting the default SVG to the workspace area', async () => {
+    const { container } = render(<App />);
+
+    const previewFrame = container.querySelector('.svg-preview-frame') as HTMLDivElement | null;
+    expect(previewFrame).not.toBeNull();
+
+    const originalGetBoundingClientRect = previewFrame?.getBoundingClientRect;
+
+    if (previewFrame) {
+      previewFrame.getBoundingClientRect = () => ({
+        width: 640,
+        height: 440,
+        top: 0,
+        left: 0,
+        right: 640,
+        bottom: 440,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    }
+
+    try {
+      openSelectionTool('Move');
+      fireEvent.click(screen.getByRole('button', { name: 'Set viewBox to workspace area' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Set the root viewBox to 0 0 640 440.')).toBeInTheDocument();
+      });
+
+      openWorkspaceSection('File');
+      expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('viewBox="0 0 640 440"');
+    } finally {
+      if (previewFrame && originalGetBoundingClientRect) {
+        previewFrame.getBoundingClientRect = originalGetBoundingClientRect;
+      }
+    }
   });
 
   it('crops the root viewBox to element bounds from the move tool', async () => {
@@ -1203,6 +1314,51 @@ describe('App', () => {
 
       openWorkspaceSection('File');
       expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).not.toContain('display="none"');
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    }
+  });
+
+  it('toggles selected element visibility from the move tool quick actions', async () => {
+    const { container } = render(<App />);
+
+    fireEvent.change(screen.getByLabelText('SVG source'), {
+      target: {
+        value: '<svg xmlns="http://www.w3.org/2000/svg"><rect id="panel" width="12" height="12" /></svg>',
+      },
+    });
+
+    const previewSurface = screen.getByLabelText('SVG preview area');
+    const previewRect = container.querySelector('.svg-preview-frame svg rect');
+    expect(previewRect).not.toBeNull();
+
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+
+    try {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: vi.fn(() => previewRect),
+      });
+
+      fireEvent.pointerDown(previewSurface, { button: 0, pointerId: 62, clientX: 24, clientY: 18 });
+      fireEvent.pointerUp(previewSurface, { button: 0, pointerId: 62, clientX: 24, clientY: 18 });
+
+      openSelectionTool('Move');
+      fireEvent.click(screen.getByRole('button', { name: 'Hide selected' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Hidden 1 selected element/i)).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Unhidden 1 selected element/i)).toBeInTheDocument();
+      });
     } finally {
       if (originalElementFromPoint) {
         Object.defineProperty(document, 'elementFromPoint', originalElementFromPoint);

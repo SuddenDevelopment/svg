@@ -5,12 +5,25 @@ export type UploadedFontAsset = {
   fileName: string;
   familyName: string;
   font: opentype.Font;
+  fontData?: ArrayBuffer;
+};
+
+export type SerializedUploadedFontAsset = {
+  id: string;
+  fileName: string;
+  familyName: string;
+  fontData: ArrayBuffer;
 };
 
 export type FontMapping = Record<string, string>;
 
 export type TextConversionOptions = {
   uploadedFonts?: UploadedFontAsset[];
+  fontMappings?: FontMapping;
+};
+
+export type SerializedTextConversionOptions = {
+  uploadedFonts?: SerializedUploadedFontAsset[];
   fontMappings?: FontMapping;
 };
 
@@ -52,5 +65,27 @@ export async function parseUploadedFontFile(file: File): Promise<UploadedFontAss
     fileName: file.name,
     familyName: getFontDisplayFamily(font),
     font,
+    fontData: buffer.slice(0),
   };
+}
+
+export function serializeTextConversionOptions(options: TextConversionOptions = {}): SerializedTextConversionOptions {
+  return {
+    uploadedFonts: options.uploadedFonts
+      ?.filter((fontAsset): fontAsset is UploadedFontAsset & { fontData: ArrayBuffer } => fontAsset.fontData instanceof ArrayBuffer)
+      .map((fontAsset) => ({
+        id: fontAsset.id,
+        fileName: fontAsset.fileName,
+        familyName: fontAsset.familyName,
+        fontData: fontAsset.fontData.slice(0),
+      })),
+    fontMappings: options.fontMappings ? { ...options.fontMappings } : undefined,
+  };
+}
+
+export function hydrateUploadedFontAssets(serializedFonts: SerializedUploadedFontAsset[] = []): UploadedFontAsset[] {
+  return serializedFonts.map((fontAsset) => ({
+    ...fontAsset,
+    font: opentype.parse(fontAsset.fontData.slice(0)),
+  }));
 }

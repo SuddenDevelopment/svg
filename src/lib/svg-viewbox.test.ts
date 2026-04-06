@@ -11,6 +11,16 @@ describe('setViewBoxToWorkspaceArea', () => {
     expect(result.viewBox).toBe('0 0 320 180');
     expect(result.source).toContain('viewBox="0 0 320 180"');
   });
+
+  it('prefers the provided workspace dimensions when they are available', () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="12" height="12" /></svg>';
+
+    const result = setViewBoxToWorkspaceArea(source, { width: 640, height: 360 });
+
+    expect(result.changed).toBe(true);
+    expect(result.viewBox).toBe('0 0 640 360');
+    expect(result.source).toContain('viewBox="0 0 640 360"');
+  });
 });
 
 describe('cropViewBoxToElements', () => {
