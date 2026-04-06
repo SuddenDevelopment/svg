@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
+import type { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, PointerEvent, WheelEvent } from 'react';
 import { sampleSvg } from './lib/sample-svg';
 import {
   animationPresets,
@@ -315,6 +315,14 @@ function formatByteCount(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function truncateSummaryValue(value: string, maxLength = 44) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 type SelectionAppearancePresetId = 'studio' | 'signal' | 'blueprint';
 type SelectionAppearanceStateId = 'selected' | 'hovered' | 'changed' | 'targeted';
 type SelectionAppearanceIntensity = 'soft' | 'medium' | 'strong';
@@ -387,21 +395,29 @@ const resourceCards: Array<{
 const primaryNavItems: Array<{
   id: WorkspaceSection;
   label: string;
+  detail: string;
+  step: string;
   iconName: WorkspaceIconName;
 }> = [
   {
     id: 'file',
     label: 'File',
+    detail: 'Open, start blank, trace, edit',
+    step: 'Step 1',
     iconName: 'file',
   },
   {
     id: 'repair',
     label: 'Repair',
+    detail: 'Normalize and resolve blockers',
+    step: 'Step 2',
     iconName: 'repair',
   },
   {
     id: 'export',
     label: 'Export',
+    detail: 'Package and snapshot outputs',
+    step: 'Step 3',
     iconName: 'export',
   },
 ];
@@ -911,6 +927,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rasterInputRef = useRef<HTMLInputElement | null>(null);
   const fontInputRef = useRef<HTMLInputElement | null>(null);
+  const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const inspectorPanelRef = useRef<HTMLElement | null>(null);
   const previewTimelineIntervalRef = useRef<number | null>(null);
@@ -1004,7 +1021,7 @@ function App() {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('file');
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('overview');
   const [selectionFacet, setSelectionFacet] = useState<SelectionFacet>('style');
-  const [isSelectedElementPanelCollapsed, setIsSelectedElementPanelCollapsed] = useState(false);
+  const [isSelectedElementPanelCollapsed, setIsSelectedElementPanelCollapsed] = useState(true);
   const [isRasterTracePanelExpanded, setIsRasterTracePanelExpanded] = useState(false);
   const [isFontToolsExpanded, setIsFontToolsExpanded] = useState(false);
   const [isAdvancedRepairToolsExpanded, setIsAdvancedRepairToolsExpanded] = useState(false);
@@ -1922,15 +1939,14 @@ function App() {
   }
 
   function getPreviewWorkspaceDimensions(): PreviewWorkspaceDimensions | null {
-    const previewFrame = previewFrameRef.current;
-    if (!previewFrame) {
+    const previewSurface = previewSurfaceRef.current;
+    if (!previewSurface) {
       return null;
     }
 
-    const previewFrameRect = previewFrame.getBoundingClientRect();
-    const scale = Math.max(0.01, previewViewport.scale);
-    const width = Number((previewFrameRect.width / scale).toFixed(3));
-    const height = Number((previewFrameRect.height / scale).toFixed(3));
+    const previewSurfaceRect = previewSurface.getBoundingClientRect();
+    const width = Number(previewSurfaceRect.width.toFixed(3));
+    const height = Number(previewSurfaceRect.height.toFixed(3));
 
     if (width <= 0 || height <= 0) {
       return null;
@@ -2674,18 +2690,6 @@ function App() {
 
   async function copySelectedPreset() {
     await copyExportVariant(selectedExportPreset);
-  }
-
-  function closePreviewWorkflowMenu(target: EventTarget | null) {
-    const menu = target instanceof HTMLElement ? target.closest('details') : null;
-    if (menu instanceof HTMLDetailsElement) {
-      menu.open = false;
-    }
-  }
-
-  function handlePreviewWorkflowAction(event: MouseEvent<HTMLButtonElement>, action: () => void | Promise<void>) {
-    void action();
-    closePreviewWorkflowMenu(event.currentTarget);
   }
 
   function closeResourcesModal() {
@@ -3611,8 +3615,8 @@ function App() {
         <section className="status-card compact-card">
           <p className="status-label">Move mode</p>
           <strong>{authorableSelectionPaths.length} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}</strong>
-          <p>While this tool is active, drag an already selected preview element to reposition it. Dragging empty space still pans the viewport.</p>
-          <p className="section-copy">Current framing: viewBox {analysis?.viewBox ?? 'none'} • workspace {analysis?.width ?? 'auto'} by {analysis?.height ?? 'auto'}</p>
+          <p>Drag selected artwork in the preview. Empty-space dragging still pans the canvas.</p>
+          <p className="section-copy">Framing: viewBox {analysis?.viewBox ?? 'none'} • root {analysis?.width ?? 'auto'} by {analysis?.height ?? 'auto'}</p>
         </section>
 
         <section className="focus-card section-card">
@@ -3620,7 +3624,7 @@ function App() {
             <h3>Move controls</h3>
             <span className="status-label">Selection-driven</span>
           </div>
-          <p className="section-copy">Use drag-to-move in the preview for direct placement, or nudge the current selection in fixed steps for more controlled adjustments.</p>
+          <p className="section-copy">Use direct drag for rough placement, then nudge or re-order for precise edits.</p>
           <div className="animation-target-actions" role="toolbar" aria-label="Move selection actions">
             <button className="ghost-button" type="button" onClick={() => setSelectedPreviewNodeIds(selectedNodeId ? [selectedNodeId] : [])} disabled={selectedPreviewNodeCount <= 1}>
               Keep only inspected element
@@ -3635,7 +3639,7 @@ function App() {
                 <h4>Layer order</h4>
                 <span className="status-label">Reorder</span>
               </div>
-              <p className="section-copy">Keep all display-order actions together so you can step or jump the current selection through the stack.</p>
+              <p className="section-copy">Move the selection through the display stack.</p>
               <div className="move-action-grid" role="group" aria-label="Layer order actions">
                 <button className="ghost-button" type="button" onClick={() => reorderSelectionInDisplayOrder('to-back')} disabled={authorableSelectionPaths.length === 0}>
                   Send to back
@@ -3656,7 +3660,7 @@ function App() {
                 <h4>Visibility</h4>
                 <span className="status-label">Quick toggle</span>
               </div>
-              <p className="section-copy">Show or hide the current selection without switching away from move mode.</p>
+              <p className="section-copy">Hide or restore the active selection without leaving move mode.</p>
               <div className="move-action-grid" role="group" aria-label="Selection visibility actions">
                 <button className="ghost-button" type="button" onClick={() => toggleSelectedElementVisibility('move')} disabled={authorableSelectionPaths.length === 0}>
                   {areAllSelectedElementsHidden ? 'Show selected' : 'Hide selected'}
@@ -3665,17 +3669,17 @@ function App() {
             </section>
           </div>
           <div className="move-viewbox-actions" role="group" aria-label="ViewBox actions">
-            <button className="ghost-button" type="button" onClick={applyWorkspaceViewBox}>
-              Set viewBox to workspace area
+            <button className="ghost-button" type="button" onClick={applyWorkspaceViewBox} aria-label="Set viewBox to workspace area" title="Expand or reset the root viewBox so it matches the full preview workspace area.">
+              Fit to workspace
             </button>
-            <button className="ghost-button" type="button" onClick={cropViewBoxToSelectionBounds}>
-              Crop viewBox to elements
+            <button className="ghost-button" type="button" onClick={cropViewBoxToSelectionBounds} aria-label="Crop viewBox to elements" title="Shrink the root viewBox so it tightly frames the current artwork bounds.">
+              Crop to art
             </button>
-            <button className="ghost-button" type="button" onClick={removeRootViewBox} disabled={!hasViewBox}>
-              Remove viewBox
+            <button className="ghost-button" type="button" onClick={removeRootViewBox} disabled={!hasViewBox} aria-label="Remove viewBox" title="Remove the root viewBox and fall back to explicit width and height sizing.">
+              Remove framing
             </button>
           </div>
-          <p className="section-copy">Removing the root viewBox is valid SVG, but scaling will then depend on the root width and height instead of a separate framing window.</p>
+          <p className="section-copy">Tooltips explain each framing action. Use Fit to expand the canvas and Crop when you want a tight export frame.</p>
           <label className="animation-field move-step-field">
             <span>Nudge distance</span>
             <input
@@ -4558,13 +4562,104 @@ function App() {
 
   function renderInteractionSection() {
     const canEditLinkFields = selectedNode ? isAnchorLikeNode(selectedNode.name) : false;
+    const interactionSignalItems: Array<{
+      label: string;
+      severity: 'info' | 'warning';
+      value: string;
+      title: string;
+    }> = selectedNodeInteraction
+      ? [
+          {
+            label: 'href',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.href
+              ? truncateSummaryValue(`${selectedNodeInteraction.href} (${selectedNodeInteraction.hrefKind})`)
+              : 'none',
+            title: selectedNodeInteraction.href
+              ? `${selectedNodeInteraction.href} (${selectedNodeInteraction.hrefKind})`
+              : 'No direct link destination',
+          },
+          {
+            label: 'pointer',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.pointerEvents ?? 'inherit',
+            title: selectedNodeInteraction.pointerEvents
+              ? `pointer-events=${selectedNodeInteraction.pointerEvents}`
+              : 'No explicit pointer-events attribute',
+          },
+          {
+            label: 'cursor',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.cursor ?? 'inherit',
+            title: selectedNodeInteraction.cursor
+              ? `cursor=${selectedNodeInteraction.cursor}`
+              : 'No explicit cursor attribute',
+          },
+          {
+            label: 'focus',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.tabIndex || selectedNodeInteraction.focusable
+              ? `tab ${selectedNodeInteraction.tabIndex ?? 'auto'} • ${selectedNodeInteraction.focusable ?? 'unset'}`
+              : 'auto',
+            title: selectedNodeInteraction.tabIndex || selectedNodeInteraction.focusable
+              ? `tabindex=${selectedNodeInteraction.tabIndex ?? 'unset'} • focusable=${selectedNodeInteraction.focusable ?? 'unset'}`
+              : 'No explicit keyboard focus attributes',
+          },
+          {
+            label: 'hover',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.hoverPreset === 'none' ? 'none' : selectedNodeInteraction.hoverPreset,
+            title: selectedNodeInteraction.hoverPreset === 'none'
+              ? 'No managed hover behavior preset'
+              : `${selectedNodeInteraction.hoverPreset} behavior preset active`,
+          },
+          {
+            label: 'focus fx',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.focusPreset === 'none' ? 'none' : selectedNodeInteraction.focusPreset,
+            title: selectedNodeInteraction.focusPreset === 'none'
+              ? 'No managed focus behavior preset'
+              : `${selectedNodeInteraction.focusPreset} behavior preset active`,
+          },
+          {
+            label: 'tooltip',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.tooltipText ? truncateSummaryValue(selectedNodeInteraction.tooltipText) : 'none',
+            title: selectedNodeInteraction.tooltipText ?? 'No direct title tooltip on this element',
+          },
+          {
+            label: 'label',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.ariaLabel ? truncateSummaryValue(selectedNodeInteraction.ariaLabel) : 'none',
+            title: selectedNodeInteraction.ariaLabel ?? 'No aria-label attribute set',
+          },
+          {
+            label: 'events',
+            severity: selectedNodeInteraction.inlineEventAttributes.length > 0 ? 'warning' : 'info',
+            value: selectedNodeInteraction.inlineEventAttributes.length > 0
+              ? truncateSummaryValue(selectedNodeInteraction.inlineEventAttributes.join(', '))
+              : 'none',
+            title: selectedNodeInteraction.inlineEventAttributes.length > 0
+              ? `${selectedNodeInteraction.inlineEventAttributes.join(', ')} present in source. Preview sanitization strips executable handlers.`
+              : 'No inline event attributes detected.',
+          },
+          {
+            label: 'styles',
+            severity: 'info' as const,
+            value: selectedNodeInteraction.hasManagedStyles ? 'managed' : 'none',
+            title: selectedNodeInteraction.hasManagedStyles
+              ? 'Managed interaction stylesheet is present in the SVG root.'
+              : 'No managed interaction stylesheet is currently needed.',
+          },
+        ]
+      : [];
 
     return (
       <>
         <section className="status-card compact-card">
           <p className="status-label">Interaction authoring</p>
           <strong>{authorableSelectionPaths.length} selected element{authorableSelectionPaths.length === 1 ? '' : 's'}</strong>
-          <p>Apply pointer, focus, tooltip, and state-driven hover/focus patterns across the current preview selection.</p>
+          <p>Write tooltip, focus, hover, cursor, and link metadata onto the active selection.</p>
         </section>
 
         <section className="focus-card section-card interaction-section-card">
@@ -4572,7 +4667,7 @@ function App() {
             <h3>Interaction fields</h3>
             <span className="status-label">Selection-driven</span>
           </div>
-          <p className="section-copy">These controls can write direct SVG attributes, attach a managed tooltip title node, and assign reusable hover/focus behavior classes. Link fields are enabled when the inspected element is an anchor.</p>
+          <p className="section-copy">Link fields unlock for anchor elements. Everything else applies directly to the current selection.</p>
           <div className="interaction-preset-grid" role="list" aria-label="Interaction behavior presets">
             {interactionBehaviorPresets.map((preset) => (
               <button
@@ -4664,46 +4759,12 @@ function App() {
           </div>
           {selectedNode && selectedNodeInteraction ? (
             <ul className="warning-list compact-note-list interaction-signal-list">
-              <li data-fit-container>
-                <span className="risk-badge info">href</span>
-                <span>{selectedNodeInteraction.href ? `${selectedNodeInteraction.href} (${selectedNodeInteraction.hrefKind})` : 'No direct link destination'}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">pointer</span>
-                <span>{selectedNodeInteraction.pointerEvents ? `pointer-events=${selectedNodeInteraction.pointerEvents}` : 'No explicit pointer-events attribute'}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">cursor</span>
-                <span>{selectedNodeInteraction.cursor ? `cursor=${selectedNodeInteraction.cursor}` : 'No explicit cursor attribute'}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">focus</span>
-                <span>{selectedNodeInteraction.tabIndex || selectedNodeInteraction.focusable ? `tabindex=${selectedNodeInteraction.tabIndex ?? 'unset'} • focusable=${selectedNodeInteraction.focusable ?? 'unset'}` : 'No explicit keyboard focus attributes'}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">hover</span>
-                <span>{selectedNodeInteraction.hoverPreset === 'none' ? 'No managed hover behavior preset' : `${selectedNodeInteraction.hoverPreset} behavior preset active`}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">focus fx</span>
-                <span>{selectedNodeInteraction.focusPreset === 'none' ? 'No managed focus behavior preset' : `${selectedNodeInteraction.focusPreset} behavior preset active`}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">tooltip</span>
-                <span>{selectedNodeInteraction.tooltipText ?? 'No direct title tooltip on this element'}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">label</span>
-                <span>{selectedNodeInteraction.ariaLabel ?? 'No aria-label attribute set'}</span>
-              </li>
-              <li data-fit-container>
-                <span className={`risk-badge ${selectedNodeInteraction.inlineEventAttributes.length > 0 ? 'warning' : 'info'}`}>events</span>
-                <span>{selectedNodeInteraction.inlineEventAttributes.length > 0 ? `${selectedNodeInteraction.inlineEventAttributes.join(', ')} present in source. Preview sanitization strips executable handlers.` : 'No inline event attributes detected.'}</span>
-              </li>
-              <li data-fit-container>
-                <span className="risk-badge info">styles</span>
-                <span>{selectedNodeInteraction.hasManagedStyles ? 'Managed interaction stylesheet is present in the SVG root.' : 'No managed interaction stylesheet is currently needed.'}</span>
-              </li>
+              {interactionSignalItems.map((item) => (
+                <li key={item.label} data-fit-container title={item.title}>
+                  <span className={`risk-badge ${item.severity}`}>{item.label}</span>
+                  <strong className="inspector-brief-value">{item.value}</strong>
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="selection-copy">Select an element in the preview to inspect its interaction signals.</p>
@@ -4716,6 +4777,33 @@ function App() {
   function renderFileSection() {
     return (
       <>
+        <section className="focus-card section-card workflow-start-card">
+          <div className="section-header-inline" data-fit-container>
+            <div>
+              <p className="status-label">Step 1</p>
+              <strong>Start a document</strong>
+            </div>
+            <span className="status-label">Open / blank / trace</span>
+          </div>
+          <p className="section-copy">Begin here: open an SVG, start blank, trace raster artwork, or reload the sample file.</p>
+          <div className="workflow-start-grid" role="group" aria-label="Document intake actions">
+            <button className="primary-button repair-button" type="button" onClick={() => fileInputRef.current?.click()}>
+              Open SVG
+            </button>
+            <button className="ghost-button repair-button" type="button" onClick={applySourceClear}>
+              Start blank
+            </button>
+            <button className="ghost-button repair-button" type="button" onClick={() => rasterInputRef.current?.click()}>
+              Trace raster
+            </button>
+            <button className="ghost-button repair-button" type="button" onClick={() => {
+              loadSvgSource(sampleSvg, 'sample.svg');
+            }}>
+              Load sample
+            </button>
+          </div>
+        </section>
+
         <section className="status-card compact-card">
           <p className="status-label">Current file</p>
           <strong>{fileName}</strong>
@@ -4737,10 +4825,10 @@ function App() {
               {isRasterTracePanelExpanded ? 'Hide options' : 'Show options'}
             </button>
           </div>
-          <p>Trace raster art entirely in the browser, then load the generated SVG into the editor and preview.</p>
+          <p>Trace raster artwork in-browser, then send the generated SVG straight into the editor.</p>
           <div className="font-actions">
             <button className="ghost-button repair-button" type="button" onClick={() => rasterInputRef.current?.click()}>
-              Choose raster
+              {rasterTraceAsset ? 'Replace raster' : 'Choose raster'}
             </button>
             <button className="ghost-button repair-button" type="button" onClick={clearRasterTraceAsset} disabled={!rasterTraceAsset}>
               Clear raster
@@ -5665,9 +5753,10 @@ function App() {
                   className="ghost-button selected-element-toggle"
                   type="button"
                   aria-expanded={!isSelectedElementPanelCollapsed}
+                  aria-label={isSelectedElementPanelCollapsed ? 'Expand selected element details' : 'Collapse selected element details'}
                   onClick={() => setIsSelectedElementPanelCollapsed((current) => !current)}
                 >
-                  {isSelectedElementPanelCollapsed ? 'Expand details' : 'Collapse details'}
+                  <span aria-hidden="true">{isSelectedElementPanelCollapsed ? '▾' : '▴'}</span>
                 </button>
               </div>
               {selectedNode ? (
@@ -6036,8 +6125,10 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
+        <div className="topbar-brand">
+          <p className="eyebrow">Open, clean, export</p>
           <h1>SVG Workbench</h1>
+          <p className="topbar-copy">Start in File to open or trace artwork, then move right through repair and export.</p>
         </div>
         <div className="topbar-actions">
           <button className="ghost-button" type="button" onClick={() => setIsSettingsOpen(true)}>
@@ -6046,73 +6137,32 @@ function App() {
           <button className="ghost-button resources-trigger" type="button" onClick={() => setIsResourcesOpen(true)}>
             Resources
           </button>
-          <input
-            ref={fileInputRef}
-            id={inputId}
-            type="file"
-            accept=".svg,image/svg+xml"
-            onChange={handleFileChange}
-            hidden
-          />
-          <input
-            ref={rasterInputRef}
-            id={rasterInputId}
-            type="file"
-            accept={rasterTraceAccept}
-            onChange={handleRasterFileChange}
-            hidden
-          />
-          <input
-            ref={fontInputRef}
-            id={fontInputId}
-            type="file"
-            accept=".ttf,.otf,.woff,font/ttf,font/otf,font/woff"
-            multiple
-            onChange={handleFontUpload}
-            hidden
-          />
-          <button className="ghost-button" type="button" onClick={() => fileInputRef.current?.click()}>
-            Open SVG
-          </button>
-          <button className="ghost-button" type="button" onClick={() => rasterInputRef.current?.click()}>
-            Trace raster
-          </button>
-          <button className="primary-button" type="button" onClick={() => {
-            loadSvgSource(sampleSvg, 'sample.svg');
-          }}>
-            Load Sample
-          </button>
-          <div className="preview-workflow-bar topbar-workflow-bar" role="toolbar" aria-label="Page actions">
-            <details className="preview-workflow-menu">
-              <summary className="preview-workflow-trigger">
-                <span className="preview-workflow-label">Download</span>
-                <span className="preview-workflow-caret" aria-hidden="true">+</span>
-              </summary>
-              <div className="preview-workflow-menu-list" role="group" aria-label="Download actions">
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('current'))}>
-                  Current
-                </button>
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => downloadExportVariant('safe'))} disabled={!normalizedExport}>
-                  Geometry-safe
-                </button>
-              </div>
-            </details>
-            <details className="preview-workflow-menu">
-              <summary className="preview-workflow-trigger">
-                <span className="preview-workflow-label">Share</span>
-                <span className="preview-workflow-caret" aria-hidden="true">+</span>
-              </summary>
-              <div className="preview-workflow-menu-list" role="group" aria-label="Share actions">
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('current'))}>
-                  Current
-                </button>
-                <button className="ghost-button preview-workflow-button" type="button" onClick={(event) => handlePreviewWorkflowAction(event, () => copyExportVariant('safe'))} disabled={!normalizedExport}>
-                  Geometry-safe
-                </button>
-              </div>
-            </details>
-          </div>
         </div>
+        <input
+          ref={fileInputRef}
+          id={inputId}
+          type="file"
+          accept=".svg,image/svg+xml"
+          onChange={handleFileChange}
+          hidden
+        />
+        <input
+          ref={rasterInputRef}
+          id={rasterInputId}
+          type="file"
+          accept={rasterTraceAccept}
+          onChange={handleRasterFileChange}
+          hidden
+        />
+        <input
+          ref={fontInputRef}
+          id={fontInputId}
+          type="file"
+          accept=".ttf,.otf,.woff,font/ttf,font/otf,font/woff"
+          multiple
+          onChange={handleFontUpload}
+          hidden
+        />
       </header>
 
       {isResourcesOpen ? (
@@ -6186,7 +6236,14 @@ function App() {
 
       <main className={`workspace-grid${isLeftCollapsed ? ' left-collapsed' : ''}`}>
         <aside className={`panel tool-panel side-panel${isLeftCollapsed ? ' collapsed' : ''}`}>
-          <div className="side-panel-header controls-only">
+          <div className={`side-panel-header${isLeftCollapsed ? ' controls-only' : ''}`}>
+            {!isLeftCollapsed ? (
+              <div>
+                <p className="eyebrow side-panel-eyebrow">Workflow</p>
+                <h2>{primaryNavItems.find((item) => item.id === activeSection)?.label}</h2>
+                <p className="side-panel-copy">{primaryNavItems.find((item) => item.id === activeSection)?.detail}</p>
+              </div>
+            ) : null}
             <button
               className="collapse-button"
               type="button"
@@ -6213,7 +6270,13 @@ function App() {
                   <span className="tool-item-short">
                     <WorkspaceIcon name={item.iconName} />
                   </span>
-                  {!isLeftCollapsed ? <span className="tool-item-label">{item.label}</span> : null}
+                  {!isLeftCollapsed ? (
+                    <span className="tool-item-content">
+                      <span className="tool-item-step">{item.step}</span>
+                      <span className="tool-item-label">{item.label}</span>
+                      <span className="tool-item-state">{item.detail}</span>
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -6384,6 +6447,7 @@ function App() {
             <div
               id={getPreviewTabPanelId()}
               className={`preview-surface ${isDragging ? 'is-dragging' : ''}`}
+              ref={previewSurfaceRef}
               role="tabpanel"
               aria-labelledby={getPreviewTabButtonId(previewTab)}
               onDragEnter={(event) => {
@@ -6435,15 +6499,15 @@ function App() {
 
             <div className="preview-overlay compact-overlay">
               <div>
-                <span className="preview-kicker">{primaryNavItems.find((item) => item.id === activeSection)?.label}</span>
+                <span className="preview-kicker">{primaryNavItems.find((item) => item.id === activeSection)?.step} • {primaryNavItems.find((item) => item.id === activeSection)?.label}</span>
                 <strong>{statusSummary}</strong>
               </div>
               <p>
                 {activeSection === 'file'
-                  ? 'Edit the source directly, drop in a new SVG, or queue raster art for browser-side tracing. Preview sanitization strips executable nodes before rendering.'
+                  ? 'Open, start blank, or trace a raster, then edit source and inspect elements in the preview.'
                   : activeSection === 'repair'
-                    ? 'Run targeted repairs from the left rail, then review export readiness and blockers on the right while panning or zooming detailed artwork.'
-                    : 'Choose an export preset on the left and use the selection inspector for style, animation, and interaction authoring.'}
+                    ? 'Run the safe pass first, then use targeted tools only where blockers remain.'
+                    : 'Pick an export preset, review the report, and generate SVG or PNG output.'}
               </p>
             </div>
           </section>

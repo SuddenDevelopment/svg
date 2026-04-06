@@ -104,11 +104,23 @@ textarea {
   margin-bottom: 10px;
 }
 
+.topbar-brand {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
 .topbar h1 {
   margin: 0;
   font-size: clamp(2rem, 4vw, 3.5rem);
   line-height: 0.95;
   letter-spacing: -0.05em;
+}
+
+.topbar-copy {
+  margin: 0;
+  max-width: 38rem;
+  color: var(--app-muted);
 }
 
 .eyebrow {
@@ -125,6 +137,15 @@ textarea {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.side-panel-eyebrow {
+  margin-bottom: 4px;
+}
+
+.side-panel-copy {
+  margin: 4px 0 0;
+  color: var(--app-muted);
 }
 
 .resources-trigger {
@@ -418,10 +439,22 @@ textarea {
   flex: 1;
 }
 
-.tool-item-state {
-  font-size: 0.72rem;
+.tool-item-content {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.tool-item-step {
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  color: var(--app-accent);
+}
+
+.tool-item-state {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
   color: var(--app-muted);
 }
 
@@ -433,6 +466,17 @@ textarea {
 .tool-item.compact {
   justify-content: center;
   padding-inline: 0.5rem;
+}
+
+.workflow-start-card {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-start-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .tool-item.active,
@@ -844,7 +888,7 @@ textarea {
 
 .source-feedback-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
   gap: 5px;
   margin-bottom: 6px;
 }
@@ -1274,6 +1318,10 @@ textarea {
   align-items: center;
 }
 
+.compact-overlay .preview-kicker {
+  margin-bottom: 6px;
+}
+
 .process-indicator-lane {
   display: grid;
   gap: 6px;
@@ -1476,6 +1524,12 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.inspector-brief-value {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
 .selection-card {
   margin-top: 6px;
 }
@@ -1581,8 +1635,8 @@ textarea {
 }
 
 .move-viewbox-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
   gap: 6px;
 }
 
@@ -1892,6 +1946,10 @@ textarea {
 .interaction-section-card {
   display: grid;
   gap: 6px;
+}
+
+.interaction-signal-list li {
+  align-items: center;
 }
 
 .interaction-preset-grid {
@@ -2550,6 +2608,16 @@ textarea {
     overflow: auto;
   }
 
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .workspace-grid {
     grid-template-columns: 1fr;
     overflow: auto;
@@ -2613,6 +2681,10 @@ textarea {
   }
 
   .readiness-scorecards {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-start-grid {
     grid-template-columns: 1fr;
   }
 }

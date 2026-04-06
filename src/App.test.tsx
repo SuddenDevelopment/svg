@@ -215,7 +215,7 @@ describe('App', () => {
 
       expect(screen.getAllByText('Parse error').length).toBeGreaterThan(0);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Load Sample' }));
+      fireEvent.click(within(screen.getByRole('group', { name: 'Document intake actions' })).getByRole('button', { name: 'Load sample' }));
 
       await waitFor(() => {
         expect(screen.queryAllByText('Parse error')).toHaveLength(0);
@@ -589,13 +589,13 @@ describe('App', () => {
   it('uses the live preview workspace size when fitting the default SVG to the workspace area', async () => {
     const { container } = render(<App />);
 
-    const previewFrame = container.querySelector('.svg-preview-frame') as HTMLDivElement | null;
-    expect(previewFrame).not.toBeNull();
+    const previewSurface = container.querySelector('.preview-surface') as HTMLDivElement | null;
+    expect(previewSurface).not.toBeNull();
 
-    const originalGetBoundingClientRect = previewFrame?.getBoundingClientRect;
+    const originalGetBoundingClientRect = previewSurface?.getBoundingClientRect;
 
-    if (previewFrame) {
-      previewFrame.getBoundingClientRect = () => ({
+    if (previewSurface) {
+      previewSurface.getBoundingClientRect = () => ({
         width: 640,
         height: 440,
         top: 0,
@@ -619,8 +619,8 @@ describe('App', () => {
       openWorkspaceSection('File');
       expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toContain('viewBox="0 0 640 440"');
     } finally {
-      if (previewFrame && originalGetBoundingClientRect) {
-        previewFrame.getBoundingClientRect = originalGetBoundingClientRect;
+      if (previewSurface && originalGetBoundingClientRect) {
+        previewSurface.getBoundingClientRect = originalGetBoundingClientRect;
       }
     }
   });
@@ -1320,12 +1320,13 @@ describe('App', () => {
       ensureInspectorExpanded();
 
       await waitFor(() => {
-        expect(screen.getByText('long-path')).toBeInTheDocument();
+        expect(screen.queryByText('Select an element in the preview to inspect it here.')).not.toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole('button', { name: 'Collapse details' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Expand selected element details' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse selected element details' }));
 
-      expect(screen.getByRole('button', { name: 'Expand details' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByRole('button', { name: 'Expand selected element details' })).toHaveAttribute('aria-expanded', 'false');
       expect(screen.getByText('Details are collapsed. Expand this card to inspect attributes and attached animations.')).toBeInTheDocument();
       expect(screen.queryByText('Animations on this element')).not.toBeInTheDocument();
     } finally {
@@ -1622,6 +1623,7 @@ describe('App', () => {
         target: { value: 'orbit' },
       });
       fireEvent.click(screen.getByRole('button', { name: 'Preview and apply to 1 target' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Expand selected element details' }));
 
       await waitFor(() => {
         expect(screen.getByText('Animations on this element')).toBeInTheDocument();
@@ -2204,50 +2206,26 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Download current SVG' })).toBeInTheDocument();
   });
 
-  it('groups page-level download and share actions in the top bar', async () => {
-    const writeText = vi.fn(async () => undefined);
-    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  it('keeps document intake in File and export actions in Export', async () => {
+    render(<App />);
 
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
+    expect(screen.queryByRole('toolbar', { name: 'Page actions' })).not.toBeInTheDocument();
+
+    const intakeActions = screen.getByRole('group', { name: 'Document intake actions' });
+    expect(within(intakeActions).getByRole('button', { name: 'Open SVG' })).toBeInTheDocument();
+    expect(within(intakeActions).getByRole('button', { name: 'Start blank' })).toBeInTheDocument();
+    expect(within(intakeActions).getByRole('button', { name: 'Trace raster' })).toBeInTheDocument();
+    expect(within(intakeActions).getByRole('button', { name: 'Load sample' })).toBeInTheDocument();
+
+    openWorkspaceSection('Export');
+    fireEvent.click(screen.getByRole('button', { name: 'Download Geometry-safe SVG' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Last export')).toBeInTheDocument();
     });
 
-    try {
-      render(<App />);
-
-      const workflowBar = screen.getByRole('toolbar', { name: 'Page actions' });
-      expect(workflowBar).toBeInTheDocument();
-      expect(screen.queryByText('Upload')).not.toBeInTheDocument();
-      expect(screen.getByText('Download')).toBeInTheDocument();
-      expect(screen.getByText('Share')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByText('Download'));
-      fireEvent.click(within(screen.getByRole('group', { name: 'Download actions' })).getByRole('button', { name: 'Geometry-safe' }));
-      openWorkspaceSection('Export');
-
-      await waitFor(() => {
-        expect(screen.getByText('Last export')).toBeInTheDocument();
-      });
-      const exportReport = screen.getByText('Last export').closest('.export-report');
-      expect(exportReport?.textContent).toContain('Geometry-safe SVG');
-
-      openWorkspaceSection('File');
-      fireEvent.click(screen.getByText('Share'));
-  fireEvent.click(within(screen.getByRole('group', { name: 'Share actions' })).getByRole('button', { name: 'Current' }));
-
-      openWorkspaceSection('Export');
-
-      await waitFor(() => {
-        expect(screen.getByText('Last copy')).toBeInTheDocument();
-      });
-      const copyReport = screen.getByText('Last copy').closest('.export-report');
-      expect(copyReport?.textContent).toContain('Current');
-    } finally {
-      if (originalClipboard) {
-        Object.defineProperty(navigator, 'clipboard', originalClipboard);
-      }
-    }
+    const exportReport = screen.getByText('Last export').closest('.export-report');
+    expect(exportReport?.textContent).toContain('Geometry-safe SVG');
   });
 
   it('keeps overview, warnings, and selection tabs available in the inspection panel for repair and export', async () => {
