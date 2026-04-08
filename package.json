@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "prepare": "husky",
+    "postinstall": "node scripts/setup-svgedit.js",
+    "setup:svgedit": "node scripts/setup-svgedit.js",
     "test": "vitest run",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
@@ -17,6 +19,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "svg-pathdata": "^8.0.0",
+    "svgedit": "^7.4.1",
     "svgson": "^5.3.1"
   },
   "devDependencies": {

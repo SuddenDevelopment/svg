@@ -108,6 +108,7 @@ import {
   setViewBoxToWorkspaceArea,
 } from './lib/svg-viewbox';
 import type { NormalizationWorkerMessage, NormalizationWorkerRequest } from './lib/svg-normalization-worker-types';
+import { SvgEditEmbed } from './SvgEditEmbed';
 
 type WorkspaceIconName =
   | 'file'
@@ -127,7 +128,7 @@ type WorkspaceIconName =
   | 'prettify'
   | 'clear';
 
-type PreviewTab = 'preview' | 'source';
+type PreviewTab = 'preview' | 'source' | 'editor';
 type WorkspaceSection = 'file' | 'repair' | 'export';
 type InspectorTab = 'overview' | 'selection' | 'warnings';
 type SelectionFacet = 'style' | 'move' | 'animate' | 'interact';
@@ -2899,7 +2900,7 @@ function App() {
   }
 
   function handlePreviewTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentTab: PreviewTab) {
-    const tabs: PreviewTab[] = ['preview', 'source'];
+    const tabs: PreviewTab[] = ['preview', 'source', 'editor'];
     const currentIndex = tabs.indexOf(currentTab);
     if (currentIndex === -1) {
       return;
@@ -6314,6 +6315,19 @@ function App() {
                 >
                   Markup
                 </button>
+                <button
+                  id={getPreviewTabButtonId('editor')}
+                  className={`preview-tab ${previewTab === 'editor' ? 'active' : ''}`}
+                  type="button"
+                  role="tab"
+                  tabIndex={previewTab === 'editor' ? 0 : -1}
+                  aria-selected={previewTab === 'editor'}
+                  aria-controls={getPreviewTabPanelId()}
+                  onClick={() => setPreviewTab('editor')}
+                  onKeyDown={(event) => handlePreviewTabKeyDown(event, 'editor')}
+                >
+                  Edit
+                </button>
               </div>
             </div>
 
@@ -6490,9 +6504,17 @@ function App() {
                       />
                     </div>
                   )
-                ) : (
+                ) : previewTab === 'source' ? (
                   <pre className="markup-preview">{deferredSource}</pre>
-                )}
+                ) : null}
+                <SvgEditEmbed
+                  svgSource={source}
+                  visible={previewTab === 'editor'}
+                  onSave={(svg) => {
+                    commitSourceAction(svg, 'Applied changes from SVG-Edit.');
+                    setPreviewTab('preview');
+                  }}
+                />
               </div>
             </div>
 
