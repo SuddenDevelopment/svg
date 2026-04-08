@@ -1,13 +1,5 @@
 import { SVGPathData } from 'svg-pathdata';
-
-type Matrix = {
-  a: number;
-  b: number;
-  c: number;
-  d: number;
-  e: number;
-  f: number;
-};
+import { type Matrix, identityMatrix, multiplyMatrix, parseTransformMatrix, transformPoint as mathTransformPoint } from './svg-math';
 
 type Bounds = {
   minX: number;
@@ -112,92 +104,8 @@ function formatViewBox(viewBox: ViewBoxValues) {
   return [viewBox.minX, viewBox.minY, viewBox.width, viewBox.height].map(formatNumber).join(' ');
 }
 
-function identityMatrix(): Matrix {
-  return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-}
-
-function multiplyMatrix(left: Matrix, right: Matrix): Matrix {
-  return {
-    a: left.a * right.a + left.c * right.b,
-    b: left.b * right.a + left.d * right.b,
-    c: left.a * right.c + left.c * right.d,
-    d: left.b * right.c + left.d * right.d,
-    e: left.a * right.e + left.c * right.f + left.e,
-    f: left.b * right.e + left.d * right.f + left.f,
-  };
-}
-
-function rotateMatrix(angleDeg: number, cx = 0, cy = 0): Matrix {
-  const angle = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return {
-    a: cos,
-    b: sin,
-    c: -sin,
-    d: cos,
-    e: cx - cx * cos + cy * sin,
-    f: cy - cx * sin - cy * cos,
-  };
-}
-
-function parseTransformMatrix(transformValue: string | null) {
-  if (!transformValue) {
-    return identityMatrix();
-  }
-
-  const transformPattern = /(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/gi;
-  let current = identityMatrix();
-  let match: RegExpExecArray | null;
-
-  while ((match = transformPattern.exec(transformValue)) !== null) {
-    const [, type, rawArgs] = match;
-    const args = (rawArgs.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []).map((value) => Number.parseFloat(value));
-    let next = identityMatrix();
-
-    switch (type) {
-      case 'matrix':
-        next = {
-          a: args[0] ?? 1,
-          b: args[1] ?? 0,
-          c: args[2] ?? 0,
-          d: args[3] ?? 1,
-          e: args[4] ?? 0,
-          f: args[5] ?? 0,
-        };
-        break;
-      case 'translate':
-        next = { a: 1, b: 0, c: 0, d: 1, e: args[0] ?? 0, f: args[1] ?? 0 };
-        break;
-      case 'scale':
-        next = { a: args[0] ?? 1, b: 0, c: 0, d: args[1] ?? args[0] ?? 1, e: 0, f: 0 };
-        break;
-      case 'rotate':
-        next = rotateMatrix(args[0] ?? 0, args[1] ?? 0, args[2] ?? 0);
-        break;
-      case 'skewX': {
-        const angle = Math.tan(((args[0] ?? 0) * Math.PI) / 180);
-        next = { a: 1, b: 0, c: angle, d: 1, e: 0, f: 0 };
-        break;
-      }
-      case 'skewY': {
-        const angle = Math.tan(((args[0] ?? 0) * Math.PI) / 180);
-        next = { a: 1, b: angle, c: 0, d: 1, e: 0, f: 0 };
-        break;
-      }
-    }
-
-    current = multiplyMatrix(current, next);
-  }
-
-  return current;
-}
-
 function transformPoint(matrix: Matrix, x: number, y: number) {
-  return {
-    x: matrix.a * x + matrix.c * y + matrix.e,
-    y: matrix.b * x + matrix.d * y + matrix.f,
-  };
+  return mathTransformPoint(x, y, matrix);
 }
 
 function createBounds(minX: number, minY: number, maxX: number, maxY: number): Bounds | null {
