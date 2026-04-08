@@ -365,7 +365,7 @@ const exportPresetCards: Array<{ id: ExportVariant; title: string; description: 
 ];
 
 const resourceCards: Array<{
-  id: 'examples' | 'addon' | 'discord';
+  id: 'examples' | 'addon' | 'discord' | 'freesvg';
   title: string;
   description: string;
   href: string;
@@ -386,9 +386,14 @@ const resourceCards: Array<{
   {
     id: 'discord',
     title: 'Discord link',
-    description: 'Open Discord. Replace this destination with the real invite URL when you have it.',
-    href: 'https://discord.com/',
-    note: 'Placeholder destination until the project invite URL is available.',
+    description: 'Join the community Discord server to discuss SVG tooling, share projects, and get support.',
+    href: 'https://discord.gg/zgfZUGmK8F',
+  },
+  {
+    id: 'freesvg',
+    title: 'FreeSVG',
+    description: 'Browse a large library of free, public-domain SVG illustrations and clipart.',
+    href: 'https://freesvg.org/',
   },
 ];
 
