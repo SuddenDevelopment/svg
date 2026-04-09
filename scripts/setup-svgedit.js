@@ -53,7 +53,8 @@ const bridgeHtml = `<!DOCTYPE html>
 <script type="module">
   import Editor from './Editor.js';
 
-  const svgEditor = new Editor(document.getElementById('container'));
+  const container = document.getElementById('container');
+  const svgEditor = new Editor(container);
   svgEditor.setConfig({
     allowInitialUserOverride: false,
     extensions: [],
@@ -61,6 +62,7 @@ const bridgeHtml = `<!DOCTYPE html>
     userExtensions: [],
     noStorageOnLoad: true,
     forceStorage: false,
+    imgPath: './images/',
   });
   svgEditor.init();
 
@@ -99,12 +101,11 @@ const bridgeHtml = `<!DOCTYPE html>
       window.parent.postMessage({ type: 'svgedit:changed' }, '*');
     });
 
-    // Intercept save to send SVG to parent instead of downloading
-    svgEditor.setCustomHandlers({
-      save(_win, data) {
-        const svg = svgEditor.svgCanvas.getSvgString();
-        window.parent.postMessage({ type: 'svgedit:save', svg }, '*');
-      },
+    // Intercept save: bind to the 'saved' canvas event instead of
+    // the removed setCustomHandlers API.
+    svgEditor.svgCanvas.bind('saved', () => {
+      const svg = svgEditor.svgCanvas.getSvgString();
+      window.parent.postMessage({ type: 'svgedit:save', svg }, '*');
     });
   });
 </script>

@@ -27,7 +27,14 @@ export function SvgEditEmbed({ svgSource, onSave, onChange, visible }: SvgEditEm
   const [isReady, setIsReady] = useState(false);
   const pendingSvgRef = useRef<string | null>(null);
   const lastLoadedRef = useRef<string>('');
+  // Lazy-mount: only create the iframe once the panel has been visible at
+  // least once.  This avoids the Editor computing NaN dimensions from a
+  // zero-sized hidden container.
+  const [mounted, setMounted] = useState(visible);
 
+  useEffect(() => {
+    if (visible && !mounted) setMounted(true);
+  }, [visible, mounted]);
   // Send SVG into the editor once it's ready
   const loadSvg = useCallback((svg: string) => {
     const iframe = iframeRef.current;
@@ -92,7 +99,12 @@ export function SvgEditEmbed({ svgSource, onSave, onChange, visible }: SvgEditEm
   return (
     <div
       className="svgedit-embed-container"
-      style={{ display: visible ? 'block' : 'none', width: '100%', height: '100%' }}
+      style={{
+        visibility: visible ? 'visible' : 'hidden',
+        position: visible ? undefined : 'absolute',
+        width: '100%',
+        height: '100%',
+      }}
     >
       <div className="svgedit-embed-toolbar">
         <button
@@ -103,15 +115,16 @@ export function SvgEditEmbed({ svgSource, onSave, onChange, visible }: SvgEditEm
         >
           Apply changes
         </button>
-        {!isReady && <span className="svgedit-loading-label">Loading editor…</span>}
+        {!isReady && mounted && <span className="svgedit-loading-label">Loading editor…</span>}
       </div>
-      <iframe
-        ref={iframeRef}
-        className="svgedit-iframe"
-        src={SVGEDIT_BRIDGE_URL}
-        title="SVG-Edit visual editor"
-        sandbox="allow-scripts allow-same-origin allow-popups"
-      />
+      {mounted && (
+        <iframe
+          ref={iframeRef}
+          className="svgedit-iframe"
+          src={SVGEDIT_BRIDGE_URL}
+          title="SVG-Edit visual editor"
+        />
+      )}
     </div>
   );
 }
