@@ -1271,7 +1271,7 @@ textarea {
   z-index: 2;
   display: flex;
   flex-direction: column;
-  background: var(--surface, #ffffff);
+  background: var(--panel-strong-bg);
 }
 
 .svgedit-embed-toolbar {
@@ -1279,26 +1279,34 @@ textarea {
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border-bottom: 1px solid rgba(19, 38, 47, 0.1);
-  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-elevated-bg);
   flex-shrink: 0;
 }
 
 .svgedit-apply-button {
   font-weight: 600;
   font-size: 0.82rem;
-  padding: 3px 10px;
+  padding: 5px 12px;
   border-radius: 4px;
-  background: rgba(19, 38, 47, 0.07);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border-color: transparent;
 }
 
 .svgedit-apply-button:hover:not(:disabled) {
-  background: rgba(19, 38, 47, 0.13);
+  background: var(--app-accent-strong);
+  color: #fff;
+}
+
+.svgedit-apply-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .svgedit-loading-label {
   font-size: 0.78rem;
-  color: rgba(19, 38, 47, 0.5);
+  color: var(--app-muted);
 }
 
 .svgedit-iframe {

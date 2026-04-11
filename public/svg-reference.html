@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SVG Elements Reference | SVG Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --app-text: #13262f;
+      --app-muted: #5f5751;
+      --app-accent: #1f7a8c;
+      --app-accent-strong: #0f5c69;
+      --app-bg: linear-gradient(180deg, #f7f2ea 0%, #efe6da 100%);
+      --panel-bg: rgba(255, 250, 244, 0.9);
+      --panel-border: rgba(19, 38, 47, 0.08);
+      --code-bg: #1e1e2e;
+      --code-text: #cdd6f4;
+      --button-primary-bg: #13262f;
+      --button-primary-text: #f7f2ea;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      line-height: 1.6;
+      color: var(--app-text);
+      background: var(--app-bg);
+      background-attachment: fixed;
+    }
+
+    .page-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(247, 242, 234, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .page-header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--app-accent);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .back-link:hover {
+      text-decoration: underline;
+    }
+
+    .page-container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+
+    .page-intro {
+      margin-bottom: 48px;
+    }
+
+    .page-intro h2 {
+      font-size: 2.5rem;
+      letter-spacing: -0.04em;
+      margin: 0 0 12px;
+    }
+
+    .page-intro p {
+      color: var(--app-muted);
+      font-size: 1.1rem;
+      max-width: 680px;
+      margin: 0;
+    }
+
+    .toc {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin-bottom: 48px;
+    }
+
+    .toc h3 {
+      margin: 0 0 12px;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--app-muted);
+    }
+
+    .toc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+    }
+
+    .toc a {
+      color: var(--app-accent);
+      text-decoration: none;
+      font-size: 0.95rem;
+    }
+
+    .toc a:hover {
+      text-decoration: underline;
+    }
+
+    .section-title {
+      font-size: 1.75rem;
+      letter-spacing: -0.03em;
+      margin: 48px 0 24px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--app-accent);
+    }
+
+    .example-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      margin-bottom: 32px;
+      overflow: hidden;
+    }
+
+    .example-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .example-header h3 {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+
+    .example-header p {
+      margin: 6px 0 0;
+      color: var(--app-muted);
+      font-size: 0.92rem;
+    }
+
+    .load-button {
+      flex-shrink: 0;
+      background: var(--button-primary-bg);
+      color: var(--button-primary-text);
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 150ms ease, transform 100ms ease;
+    }
+
+    .load-button:hover {
+      background: var(--app-accent-strong);
+    }
+
+    .load-button:active {
+      transform: scale(0.97);
+    }
+
+    .example-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    @media (max-width: 700px) {
+      .example-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .example-preview {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        linear-gradient(45deg, #e8e3db 25%, transparent 25%),
+        linear-gradient(-45deg, #e8e3db 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #e8e3db 75%),
+        linear-gradient(-45deg, transparent 75%, #e8e3db 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+      background-color: #f5f0e8;
+      min-height: 180px;
+    }
+
+    .example-preview svg {
+      max-width: 100%;
+      max-height: 200px;
+    }
+
+    .example-code {
+      background: var(--code-bg);
+      color: var(--code-text);
+      padding: 16px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      border-left: 1px solid var(--panel-border);
+    }
+
+    .example-code pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .tag { color: #f38ba8; }
+    .attr { color: #a6e3a1; }
+    .val { color: #f9e2af; }
+    .comment { color: #6c7086; font-style: italic; }
+
+    .external-example {
+      border-top: 1px solid var(--panel-border);
+      padding: 12px 20px;
+      background: rgba(31, 122, 140, 0.06);
+      font-size: 0.88rem;
+      color: var(--app-muted);
+    }
+
+    .external-example a {
+      color: var(--app-accent);
+    }
+
+    .attr-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+
+    .attr-table th,
+    .attr-table td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .attr-table th {
+      background: rgba(31, 122, 140, 0.08);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .attr-table code {
+      background: rgba(19, 38, 47, 0.08);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85em;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--button-primary-bg);
+      color: var(--button-primary-text);
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      opacity: 0;
+      transition: transform 300ms ease, opacity 300ms ease;
+      z-index: 1000;
+    }
+
+    .toast.visible {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <h1>SVG Elements Reference</h1>
+    <a href="/" class="back-link">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M10 12L6 8L10 4"/>
+      </svg>
+      Back to Workbench
+    </a>
+  </header>
+
+  <main class="page-container">
+    <div class="page-intro">
+      <h2>SVG Elements, Properties &amp; Attributes</h2>
+      <p>
+        A comprehensive reference for SVG elements, styling, interaction, and animation.
+        Each example includes code and a live preview. Click "Load in Workbench" to open any example in the SVG Workbench.
+      </p>
+    </div>
+
+    <nav class="toc">
+      <h3>Table of Contents</h3>
+      <div class="toc-grid">
+        <a href="#basic-shapes">Basic Shapes</a>
+        <a href="#rect">&lt;rect&gt;</a>
+        <a href="#circle">&lt;circle&gt;</a>
+        <a href="#ellipse">&lt;ellipse&gt;</a>
+        <a href="#line">&lt;line&gt;</a>
+        <a href="#polyline">&lt;polyline&gt;</a>
+        <a href="#polygon">&lt;polygon&gt;</a>
+        <a href="#path">&lt;path&gt;</a>
+        <a href="#text">&lt;text&gt;</a>
+        <a href="#image">&lt;image&gt;</a>
+        <a href="#groups">Groups &amp; Defs</a>
+        <a href="#gradients">Gradients</a>
+        <a href="#filters">Filters</a>
+        <a href="#clip-mask">Clipping &amp; Masking</a>
+        <a href="#style">Styling</a>
+        <a href="#interaction">Interaction</a>
+        <a href="#animation">Animation</a>
+      </div>
+    </nav>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- BASIC SHAPES -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="basic-shapes" class="section-title">Basic Shapes</h2>
+
+    <!-- RECT -->
+    <article id="rect" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;rect&gt; - Rectangle</h3>
+          <p>Draws a rectangle. Use <code>rx</code> and <code>ry</code> for rounded corners.</p>
+        </div>
+        <button class="load-button" data-svg="rect-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="rect-example" viewBox="0 0 200 120" width="200" height="120" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="10" width="80" height="60" fill="#1f7a8c" />
+            <rect x="110" y="10" width="80" height="60" rx="12" ry="12" fill="#ff8a3d" />
+            <rect x="10" y="80" width="180" height="30" rx="6" fill="none" stroke="#13262f" stroke-width="2" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 120"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Solid rectangle --&gt;</span>
+  <span class="tag">&lt;rect</span> <span class="attr">x</span>=<span class="val">"10"</span> <span class="attr">y</span>=<span class="val">"10"</span>
+        <span class="attr">width</span>=<span class="val">"80"</span> <span class="attr">height</span>=<span class="val">"60"</span>
+        <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Rounded rectangle --&gt;</span>
+  <span class="tag">&lt;rect</span> <span class="attr">x</span>=<span class="val">"110"</span> <span class="attr">y</span>=<span class="val">"10"</span>
+        <span class="attr">width</span>=<span class="val">"80"</span> <span class="attr">height</span>=<span class="val">"60"</span>
+        <span class="attr">rx</span>=<span class="val">"12"</span> <span class="attr">ry</span>=<span class="val">"12"</span>
+        <span class="attr">fill</span>=<span class="val">"#ff8a3d"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Stroked rectangle --&gt;</span>
+  <span class="tag">&lt;rect</span> <span class="attr">x</span>=<span class="val">"10"</span> <span class="attr">y</span>=<span class="val">"80"</span>
+        <span class="attr">width</span>=<span class="val">"180"</span> <span class="attr">height</span>=<span class="val">"30"</span>
+        <span class="attr">rx</span>=<span class="val">"6"</span>
+        <span class="attr">fill</span>=<span class="val">"none"</span>
+        <span class="attr">stroke</span>=<span class="val">"#13262f"</span>
+        <span class="attr">stroke-width</span>=<span class="val">"2"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- CIRCLE -->
+    <article id="circle" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;circle&gt; - Circle</h3>
+          <p>Draws a circle defined by center point (<code>cx</code>, <code>cy</code>) and radius (<code>r</code>).</p>
+        </div>
+        <button class="load-button" data-svg="circle-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="circle-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" r="40" fill="#1f7a8c" />
+            <circle cx="130" cy="50" r="35" fill="none" stroke="#ff8a3d" stroke-width="4" />
+            <circle cx="130" cy="50" r="20" fill="#13262f" opacity="0.6" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Solid circle --&gt;</span>
+  <span class="tag">&lt;circle</span> <span class="attr">cx</span>=<span class="val">"50"</span> <span class="attr">cy</span>=<span class="val">"50"</span> <span class="attr">r</span>=<span class="val">"40"</span>
+          <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Stroked circle --&gt;</span>
+  <span class="tag">&lt;circle</span> <span class="attr">cx</span>=<span class="val">"130"</span> <span class="attr">cy</span>=<span class="val">"50"</span> <span class="attr">r</span>=<span class="val">"35"</span>
+          <span class="attr">fill</span>=<span class="val">"none"</span>
+          <span class="attr">stroke</span>=<span class="val">"#ff8a3d"</span>
+          <span class="attr">stroke-width</span>=<span class="val">"4"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Semi-transparent circle --&gt;</span>
+  <span class="tag">&lt;circle</span> <span class="attr">cx</span>=<span class="val">"130"</span> <span class="attr">cy</span>=<span class="val">"50"</span> <span class="attr">r</span>=<span class="val">"20"</span>
+          <span class="attr">fill</span>=<span class="val">"#13262f"</span>
+          <span class="attr">opacity</span>=<span class="val">"0.6"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ELLIPSE -->
+    <article id="ellipse" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;ellipse&gt; - Ellipse</h3>
+          <p>Draws an ellipse with separate x and y radii (<code>rx</code>, <code>ry</code>).</p>
+        </div>
+        <button class="load-button" data-svg="ellipse-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="ellipse-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <ellipse cx="70" cy="50" rx="60" ry="35" fill="#1f7a8c" opacity="0.8" />
+            <ellipse cx="140" cy="50" rx="40" ry="25" fill="none" stroke="#ff8a3d" stroke-width="3" stroke-dasharray="8 4" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Solid ellipse --&gt;</span>
+  <span class="tag">&lt;ellipse</span> <span class="attr">cx</span>=<span class="val">"70"</span> <span class="attr">cy</span>=<span class="val">"50"</span>
+           <span class="attr">rx</span>=<span class="val">"60"</span> <span class="attr">ry</span>=<span class="val">"35"</span>
+           <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span>
+           <span class="attr">opacity</span>=<span class="val">"0.8"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Dashed stroke ellipse --&gt;</span>
+  <span class="tag">&lt;ellipse</span> <span class="attr">cx</span>=<span class="val">"140"</span> <span class="attr">cy</span>=<span class="val">"50"</span>
+           <span class="attr">rx</span>=<span class="val">"40"</span> <span class="attr">ry</span>=<span class="val">"25"</span>
+           <span class="attr">fill</span>=<span class="val">"none"</span>
+           <span class="attr">stroke</span>=<span class="val">"#ff8a3d"</span>
+           <span class="attr">stroke-width</span>=<span class="val">"3"</span>
+           <span class="attr">stroke-dasharray</span>=<span class="val">"8 4"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- LINE -->
+    <article id="line" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;line&gt; - Line</h3>
+          <p>Draws a straight line from point (<code>x1</code>, <code>y1</code>) to (<code>x2</code>, <code>y2</code>).</p>
+        </div>
+        <button class="load-button" data-svg="line-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="line-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <line x1="10" y1="20" x2="190" y2="20" stroke="#13262f" stroke-width="2" />
+            <line x1="10" y1="50" x2="190" y2="50" stroke="#1f7a8c" stroke-width="4" stroke-linecap="round" />
+            <line x1="10" y1="80" x2="190" y2="80" stroke="#ff8a3d" stroke-width="3" stroke-dasharray="12 6" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Simple line --&gt;</span>
+  <span class="tag">&lt;line</span> <span class="attr">x1</span>=<span class="val">"10"</span> <span class="attr">y1</span>=<span class="val">"20"</span>
+        <span class="attr">x2</span>=<span class="val">"190"</span> <span class="attr">y2</span>=<span class="val">"20"</span>
+        <span class="attr">stroke</span>=<span class="val">"#13262f"</span>
+        <span class="attr">stroke-width</span>=<span class="val">"2"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Rounded caps --&gt;</span>
+  <span class="tag">&lt;line</span> <span class="attr">x1</span>=<span class="val">"10"</span> <span class="attr">y1</span>=<span class="val">"50"</span>
+        <span class="attr">x2</span>=<span class="val">"190"</span> <span class="attr">y2</span>=<span class="val">"50"</span>
+        <span class="attr">stroke</span>=<span class="val">"#1f7a8c"</span>
+        <span class="attr">stroke-width</span>=<span class="val">"4"</span>
+        <span class="attr">stroke-linecap</span>=<span class="val">"round"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Dashed line --&gt;</span>
+  <span class="tag">&lt;line</span> <span class="attr">x1</span>=<span class="val">"10"</span> <span class="attr">y1</span>=<span class="val">"80"</span>
+        <span class="attr">x2</span>=<span class="val">"190"</span> <span class="attr">y2</span>=<span class="val">"80"</span>
+        <span class="attr">stroke</span>=<span class="val">"#ff8a3d"</span>
+        <span class="attr">stroke-width</span>=<span class="val">"3"</span>
+        <span class="attr">stroke-dasharray</span>=<span class="val">"12 6"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- POLYLINE -->
+    <article id="polyline" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;polyline&gt; - Polyline</h3>
+          <p>Draws connected line segments. Unlike polygon, it doesn't close automatically.</p>
+        </div>
+        <button class="load-button" data-svg="polyline-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="polyline-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <polyline points="10,90 40,30 70,60 100,20 130,70 160,40 190,80" fill="none" stroke="#1f7a8c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+            <polyline points="10,90 40,30 70,60 100,20 130,70 160,40 190,80" fill="rgba(31,122,140,0.15)" stroke="none" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Line graph style --&gt;</span>
+  <span class="tag">&lt;polyline</span>
+    <span class="attr">points</span>=<span class="val">"10,90 40,30 70,60
+            100,20 130,70 160,40 190,80"</span>
+    <span class="attr">fill</span>=<span class="val">"none"</span>
+    <span class="attr">stroke</span>=<span class="val">"#1f7a8c"</span>
+    <span class="attr">stroke-width</span>=<span class="val">"3"</span>
+    <span class="attr">stroke-linejoin</span>=<span class="val">"round"</span>
+    <span class="attr">stroke-linecap</span>=<span class="val">"round"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Area fill underneath --&gt;</span>
+  <span class="tag">&lt;polyline</span>
+    <span class="attr">points</span>=<span class="val">"..."</span>
+    <span class="attr">fill</span>=<span class="val">"rgba(31,122,140,0.15)"</span>
+    <span class="attr">stroke</span>=<span class="val">"none"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- POLYGON -->
+    <article id="polygon" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;polygon&gt; - Polygon</h3>
+          <p>Draws a closed shape from a list of points. The path automatically closes.</p>
+        </div>
+        <button class="load-button" data-svg="polygon-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="polygon-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="50,10 90,35 75,80 25,80 10,35" fill="#1f7a8c" />
+            <polygon points="150,10 180,40 165,85 135,85 120,40" fill="none" stroke="#ff8a3d" stroke-width="3" stroke-linejoin="round" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Pentagon (filled) --&gt;</span>
+  <span class="tag">&lt;polygon</span>
+    <span class="attr">points</span>=<span class="val">"50,10 90,35 75,80 25,80 10,35"</span>
+    <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Pentagon (stroked) --&gt;</span>
+  <span class="tag">&lt;polygon</span>
+    <span class="attr">points</span>=<span class="val">"150,10 180,40 165,85 135,85 120,40"</span>
+    <span class="attr">fill</span>=<span class="val">"none"</span>
+    <span class="attr">stroke</span>=<span class="val">"#ff8a3d"</span>
+    <span class="attr">stroke-width</span>=<span class="val">"3"</span>
+    <span class="attr">stroke-linejoin</span>=<span class="val">"round"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- PATH -->
+    <article id="path" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;path&gt; - Path</h3>
+          <p>The most powerful and flexible shape. Uses commands like <code>M</code> (move), <code>L</code> (line), <code>C</code> (curve), <code>A</code> (arc), and <code>Z</code> (close).</p>
+        </div>
+        <button class="load-button" data-svg="path-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="path-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <!-- Heart shape -->
+            <path d="M100,30 C100,10 70,10 70,40 C70,60 100,80 100,80 C100,80 130,60 130,40 C130,10 100,10 100,30 Z" fill="#ff6b6b" />
+            <!-- Arrow shape -->
+            <path d="M20,50 L45,50 L45,40 L70,55 L45,70 L45,60 L20,60 Z" fill="#1f7a8c" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Heart using curves --&gt;</span>
+  <span class="tag">&lt;path</span> <span class="attr">d</span>=<span class="val">"M100,30
+           C100,10 70,10 70,40
+           C70,60 100,80 100,80
+           C100,80 130,60 130,40
+           C130,10 100,10 100,30 Z"</span>
+        <span class="attr">fill</span>=<span class="val">"#ff6b6b"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Arrow using lines --&gt;</span>
+  <span class="tag">&lt;path</span> <span class="attr">d</span>=<span class="val">"M20,50 L45,50 L45,40
+           L70,55 L45,70 L45,60
+           L20,60 Z"</span>
+        <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+      <div class="external-example">
+        Path commands: <code>M</code>=moveto, <code>L</code>=lineto, <code>H</code>=horizontal, <code>V</code>=vertical, <code>C</code>=cubic bezier, <code>S</code>=smooth cubic, <code>Q</code>=quadratic, <code>T</code>=smooth quadratic, <code>A</code>=arc, <code>Z</code>=closepath
+      </div>
+    </article>
+
+    <!-- TEXT -->
+    <article id="text" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;text&gt; - Text</h3>
+          <p>Renders text within the SVG. Supports <code>tspan</code> for inline styling and <code>textPath</code> for text along a path.</p>
+        </div>
+        <button class="load-button" data-svg="text-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="text-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <text x="10" y="30" font-family="Arial, sans-serif" font-size="20" fill="#13262f">Hello SVG!</text>
+            <text x="10" y="60" font-family="Georgia, serif" font-size="16" fill="#1f7a8c">
+              <tspan font-weight="bold">Bold</tspan> and <tspan font-style="italic">Italic</tspan>
+            </text>
+            <text x="10" y="85" font-family="Arial" font-size="14" fill="#ff8a3d" letter-spacing="3">SPACED OUT</text>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Basic text --&gt;</span>
+  <span class="tag">&lt;text</span> <span class="attr">x</span>=<span class="val">"10"</span> <span class="attr">y</span>=<span class="val">"30"</span>
+        <span class="attr">font-family</span>=<span class="val">"Arial"</span>
+        <span class="attr">font-size</span>=<span class="val">"20"</span>
+        <span class="attr">fill</span>=<span class="val">"#13262f"</span><span class="tag">&gt;</span>Hello SVG!<span class="tag">&lt;/text&gt;</span>
+  <span class="comment">&lt;!-- With tspan for inline styles --&gt;</span>
+  <span class="tag">&lt;text</span> <span class="attr">x</span>=<span class="val">"10"</span> <span class="attr">y</span>=<span class="val">"60"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;tspan</span> <span class="attr">font-weight</span>=<span class="val">"bold"</span><span class="tag">&gt;</span>Bold<span class="tag">&lt;/tspan&gt;</span>
+    and
+    <span class="tag">&lt;tspan</span> <span class="attr">font-style</span>=<span class="val">"italic"</span><span class="tag">&gt;</span>Italic<span class="tag">&lt;/tspan&gt;</span>
+  <span class="tag">&lt;/text&gt;</span>
+  <span class="comment">&lt;!-- Letter spacing --&gt;</span>
+  <span class="tag">&lt;text</span> <span class="attr">letter-spacing</span>=<span class="val">"3"</span><span class="tag">&gt;</span>SPACED<span class="tag">&lt;/text&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- IMAGE -->
+    <article id="image" class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;image&gt; - Embedded Image</h3>
+          <p>Embeds raster images (PNG, JPEG) or other SVGs into the graphic. Use <code>href</code> or <code>xlink:href</code>.</p>
+        </div>
+        <button class="load-button" data-svg="image-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="image-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" fill="#e8e3db" rx="4" />
+            <image href="https://freesvg.org/img/simple-sun.png" x="10" y="10" width="80" height="80" />
+            <rect x="105" y="5" width="90" height="90" fill="#1f7a8c" rx="4" opacity="0.2" />
+            <text x="150" y="55" text-anchor="middle" font-size="10" fill="#13262f">External Image</text>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Background --&gt;</span>
+  <span class="tag">&lt;rect</span> <span class="attr">x</span>=<span class="val">"5"</span> <span class="attr">y</span>=<span class="val">"5"</span>
+        <span class="attr">width</span>=<span class="val">"90"</span> <span class="attr">height</span>=<span class="val">"90"</span>
+        <span class="attr">fill</span>=<span class="val">"#e8e3db"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Embedded raster image --&gt;</span>
+  <span class="tag">&lt;image</span>
+    <span class="attr">href</span>=<span class="val">"https://example.com/image.png"</span>
+    <span class="attr">x</span>=<span class="val">"10"</span> <span class="attr">y</span>=<span class="val">"10"</span>
+    <span class="attr">width</span>=<span class="val">"80"</span> <span class="attr">height</span>=<span class="val">"80"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+      <div class="external-example">
+        Find free SVG images at <a href="https://freesvg.org/" target="_blank" rel="noreferrer">FreeSVG.org</a>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- GROUPS AND DEFS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="groups" class="section-title">Groups, Defs &amp; Use</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;g&gt;, &lt;defs&gt;, &lt;use&gt;</h3>
+          <p>Group elements together, define reusable content, and instantiate copies with <code>use</code>.</p>
+        </div>
+        <button class="load-button" data-svg="group-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="group-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <g id="star">
+                <polygon points="12,2 15,9 22,9 16,14 18,21 12,17 6,21 8,14 2,9 9,9" fill="currentColor" />
+              </g>
+            </defs>
+            <use href="#star" x="10" y="30" fill="#ff8a3d" />
+            <use href="#star" x="50" y="30" fill="#1f7a8c" />
+            <use href="#star" x="90" y="30" fill="#13262f" />
+            <g transform="translate(140, 40)" opacity="0.7">
+              <use href="#star" x="0" y="0" fill="#ff8a3d" />
+              <use href="#star" x="25" y="15" fill="#1f7a8c" />
+            </g>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="val">"0 0 200 100"</span><span class="tag">&gt;</span>
+  <span class="comment">&lt;!-- Define reusable shapes --&gt;</span>
+  <span class="tag">&lt;defs&gt;</span>
+    <span class="tag">&lt;g</span> <span class="attr">id</span>=<span class="val">"star"</span><span class="tag">&gt;</span>
+      <span class="tag">&lt;polygon</span> <span class="attr">points</span>=<span class="val">"..."</span>
+               <span class="attr">fill</span>=<span class="val">"currentColor"</span> <span class="tag">/&gt;</span>
+    <span class="tag">&lt;/g&gt;</span>
+  <span class="tag">&lt;/defs&gt;</span>
+  <span class="comment">&lt;!-- Reuse with different colors --&gt;</span>
+  <span class="tag">&lt;use</span> <span class="attr">href</span>=<span class="val">"#star"</span> <span class="attr">x</span>=<span class="val">"10"</span> <span class="attr">y</span>=<span class="val">"30"</span>
+       <span class="attr">fill</span>=<span class="val">"#ff8a3d"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;use</span> <span class="attr">href</span>=<span class="val">"#star"</span> <span class="attr">x</span>=<span class="val">"50"</span> <span class="attr">y</span>=<span class="val">"30"</span>
+       <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+  <span class="comment">&lt;!-- Group with transform --&gt;</span>
+  <span class="tag">&lt;g</span> <span class="attr">transform</span>=<span class="val">"translate(140,40)"</span>
+     <span class="attr">opacity</span>=<span class="val">"0.7"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;use</span> <span class="attr">href</span>=<span class="val">"#star"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/g&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- GRADIENTS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="gradients" class="section-title">Gradients</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;linearGradient&gt; &amp; &lt;radialGradient&gt;</h3>
+          <p>Define smooth color transitions. Use <code>stop</code> elements to set color stops.</p>
+        </div>
+        <button class="load-button" data-svg="gradient-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="gradient-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="linear-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#1f7a8c" />
+                <stop offset="100%" stop-color="#ff8a3d" />
+              </linearGradient>
+              <radialGradient id="radial-grad" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#fff" />
+                <stop offset="100%" stop-color="#1f7a8c" />
+              </radialGradient>
+            </defs>
+            <rect x="10" y="10" width="80" height="80" fill="url(#linear-grad)" rx="6" />
+            <circle cx="150" cy="50" r="40" fill="url(#radial-grad)" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;defs&gt;</span>
+  <span class="comment">&lt;!-- Linear gradient --&gt;</span>
+  <span class="tag">&lt;linearGradient</span> <span class="attr">id</span>=<span class="val">"lg"</span>
+    <span class="attr">x1</span>=<span class="val">"0%"</span> <span class="attr">y1</span>=<span class="val">"0%"</span> <span class="attr">x2</span>=<span class="val">"100%"</span> <span class="attr">y2</span>=<span class="val">"0%"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;stop</span> <span class="attr">offset</span>=<span class="val">"0%"</span>
+          <span class="attr">stop-color</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+    <span class="tag">&lt;stop</span> <span class="attr">offset</span>=<span class="val">"100%"</span>
+          <span class="attr">stop-color</span>=<span class="val">"#ff8a3d"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/linearGradient&gt;</span>
+  <span class="comment">&lt;!-- Radial gradient --&gt;</span>
+  <span class="tag">&lt;radialGradient</span> <span class="attr">id</span>=<span class="val">"rg"</span>
+    <span class="attr">cx</span>=<span class="val">"50%"</span> <span class="attr">cy</span>=<span class="val">"50%"</span> <span class="attr">r</span>=<span class="val">"50%"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;stop</span> <span class="attr">offset</span>=<span class="val">"0%"</span> <span class="attr">stop-color</span>=<span class="val">"#fff"</span> <span class="tag">/&gt;</span>
+    <span class="tag">&lt;stop</span> <span class="attr">offset</span>=<span class="val">"100%"</span> <span class="attr">stop-color</span>=<span class="val">"#1f7a8c"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/radialGradient&gt;</span>
+<span class="tag">&lt;/defs&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">fill</span>=<span class="val">"url(#lg)"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;circle</span> <span class="attr">fill</span>=<span class="val">"url(#rg)"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- FILTERS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="filters" class="section-title">Filters</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;filter&gt; - SVG Filters</h3>
+          <p>Apply visual effects like blur, shadows, and color manipulation using filter primitives.</p>
+        </div>
+        <button class="load-button" data-svg="filter-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="filter-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <filter id="blur-filter" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
+              </filter>
+              <filter id="shadow-filter" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="3" dy="3" stdDeviation="2" flood-color="#13262f" flood-opacity="0.4" />
+              </filter>
+            </defs>
+            <rect x="15" y="20" width="60" height="60" fill="#1f7a8c" filter="url(#blur-filter)" />
+            <circle cx="145" cy="50" r="30" fill="#ff8a3d" filter="url(#shadow-filter)" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;defs&gt;</span>
+  <span class="comment">&lt;!-- Blur filter --&gt;</span>
+  <span class="tag">&lt;filter</span> <span class="attr">id</span>=<span class="val">"blur"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;feGaussianBlur</span>
+      <span class="attr">in</span>=<span class="val">"SourceGraphic"</span>
+      <span class="attr">stdDeviation</span>=<span class="val">"3"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/filter&gt;</span>
+  <span class="comment">&lt;!-- Drop shadow --&gt;</span>
+  <span class="tag">&lt;filter</span> <span class="attr">id</span>=<span class="val">"shadow"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;feDropShadow</span>
+      <span class="attr">dx</span>=<span class="val">"3"</span> <span class="attr">dy</span>=<span class="val">"3"</span>
+      <span class="attr">stdDeviation</span>=<span class="val">"2"</span>
+      <span class="attr">flood-color</span>=<span class="val">"#13262f"</span>
+      <span class="attr">flood-opacity</span>=<span class="val">"0.4"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/filter&gt;</span>
+<span class="tag">&lt;/defs&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">filter</span>=<span class="val">"url(#blur)"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;circle</span> <span class="attr">filter</span>=<span class="val">"url(#shadow)"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- CLIPPING & MASKING -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="clip-mask" class="section-title">Clipping &amp; Masking</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>&lt;clipPath&gt; &amp; &lt;mask&gt;</h3>
+          <p>Clip content to a shape or use grayscale values to create transparency masks.</p>
+        </div>
+        <button class="load-button" data-svg="clip-mask-example">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="clip-mask-example" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <clipPath id="circle-clip">
+                <circle cx="50" cy="50" r="35" />
+              </clipPath>
+              <mask id="fade-mask">
+                <rect x="110" y="10" width="80" height="80" fill="url(#mask-grad)" />
+              </mask>
+              <linearGradient id="mask-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="white" />
+                <stop offset="100%" stop-color="black" />
+              </linearGradient>
+            </defs>
+            <rect x="10" y="10" width="80" height="80" fill="#ff8a3d" clip-path="url(#circle-clip)" />
+            <rect x="110" y="10" width="80" height="80" fill="#1f7a8c" mask="url(#fade-mask)" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;defs&gt;</span>
+  <span class="comment">&lt;!-- Clip to circle shape --&gt;</span>
+  <span class="tag">&lt;clipPath</span> <span class="attr">id</span>=<span class="val">"clip"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;circle</span> <span class="attr">cx</span>=<span class="val">"50"</span> <span class="attr">cy</span>=<span class="val">"50"</span> <span class="attr">r</span>=<span class="val">"35"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/clipPath&gt;</span>
+  <span class="comment">&lt;!-- Gradient mask for fade --&gt;</span>
+  <span class="tag">&lt;mask</span> <span class="attr">id</span>=<span class="val">"fade"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;rect</span> <span class="attr">fill</span>=<span class="val">"url(#grad)"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;/mask&gt;</span>
+<span class="tag">&lt;/defs&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">clip-path</span>=<span class="val">"url(#clip)"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">mask</span>=<span class="val">"url(#fade)"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- STYLING -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="style" class="section-title">Styling</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>Fill &amp; Stroke Properties</h3>
+          <p>Control appearance with fill, stroke, opacity, and stroke styling attributes.</p>
+        </div>
+        <button class="load-button" data-svg="style-fill-stroke">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="style-fill-stroke" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="10" width="50" height="50" fill="#1f7a8c" fill-opacity="0.5" />
+            <rect x="70" y="10" width="50" height="50" fill="none" stroke="#ff8a3d" stroke-width="4" />
+            <rect x="140" y="10" width="50" height="50" fill="#13262f" stroke="#1f7a8c" stroke-width="3" stroke-dasharray="8 4" />
+            <line x1="10" y1="80" x2="60" y2="80" stroke="#13262f" stroke-width="6" stroke-linecap="butt" />
+            <line x1="75" y1="80" x2="125" y2="80" stroke="#13262f" stroke-width="6" stroke-linecap="round" />
+            <line x1="140" y1="80" x2="190" y2="80" stroke="#13262f" stroke-width="6" stroke-linecap="square" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="comment">&lt;!-- Semi-transparent fill --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">fill</span>=<span class="val">"#1f7a8c"</span>
+      <span class="attr">fill-opacity</span>=<span class="val">"0.5"</span> <span class="tag">/&gt;</span>
+
+<span class="comment">&lt;!-- Stroke only --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">fill</span>=<span class="val">"none"</span>
+      <span class="attr">stroke</span>=<span class="val">"#ff8a3d"</span>
+      <span class="attr">stroke-width</span>=<span class="val">"4"</span> <span class="tag">/&gt;</span>
+
+<span class="comment">&lt;!-- Dashed stroke --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">stroke-dasharray</span>=<span class="val">"8 4"</span> <span class="tag">/&gt;</span>
+
+<span class="comment">&lt;!-- Line caps: butt, round, square --&gt;</span>
+<span class="tag">&lt;line</span> <span class="attr">stroke-linecap</span>=<span class="val">"round"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>CSS Styling with &lt;style&gt;</h3>
+          <p>Use embedded CSS for cleaner, more maintainable SVG styling with classes.</p>
+        </div>
+        <button class="load-button" data-svg="style-css">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="style-css" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              .shape-primary { fill: #1f7a8c; }
+              .shape-accent { fill: #ff8a3d; }
+              .outlined { fill: none; stroke: #13262f; stroke-width: 2; }
+              .hover-grow { transition: transform 200ms ease; transform-origin: center; }
+              .hover-grow:hover { transform: scale(1.1); }
+            </style>
+            <circle cx="40" cy="50" r="30" class="shape-primary hover-grow" />
+            <rect x="85" y="20" width="60" height="60" rx="8" class="shape-accent hover-grow" />
+            <polygon points="180,20 195,50 180,80 165,50" class="outlined hover-grow" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;svg&gt;</span>
+  <span class="tag">&lt;style&gt;</span>
+    .primary { fill: #1f7a8c; }
+    .accent { fill: #ff8a3d; }
+    .outlined {
+      fill: none;
+      stroke: #13262f;
+      stroke-width: 2;
+    }
+    .hover-grow {
+      transition: transform 200ms;
+      transform-origin: center;
+    }
+    .hover-grow:hover {
+      transform: scale(1.1);
+    }
+  <span class="tag">&lt;/style&gt;</span>
+  <span class="tag">&lt;circle</span> <span class="attr">class</span>=<span class="val">"primary hover-grow"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;rect</span> <span class="attr">class</span>=<span class="val">"accent hover-grow"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/svg&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>Transforms</h3>
+          <p>Apply translate, rotate, scale, and skew transformations to elements.</p>
+        </div>
+        <button class="load-button" data-svg="style-transforms">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="style-transforms" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="30" height="30" fill="#1f7a8c" transform="translate(20, 35)" />
+            <rect x="0" y="0" width="30" height="30" fill="#ff8a3d" transform="translate(80, 50) rotate(45)" />
+            <rect x="0" y="0" width="30" height="30" fill="#13262f" transform="translate(140, 35) scale(1.3)" />
+            <rect x="0" y="0" width="30" height="30" fill="#1f7a8c" opacity="0.6" transform="translate(170, 35) skewX(20)" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="comment">&lt;!-- Translate (move) --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">transform</span>=<span class="val">"translate(20, 35)"</span> <span class="tag">/&gt;</span>
+
+<span class="comment">&lt;!-- Rotate around origin --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">transform</span>=<span class="val">"translate(80, 50)
+                 rotate(45)"</span> <span class="tag">/&gt;</span>
+
+<span class="comment">&lt;!-- Scale up --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">transform</span>=<span class="val">"translate(140, 35)
+                 scale(1.3)"</span> <span class="tag">/&gt;</span>
+
+<span class="comment">&lt;!-- Skew --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">transform</span>=<span class="val">"skewX(20)"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- INTERACTION -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="interaction" class="section-title">Interaction</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>CSS Hover &amp; Focus States</h3>
+          <p>Create interactive effects using CSS pseudo-classes and transitions.</p>
+        </div>
+        <button class="load-button" data-svg="interact-hover">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="interact-hover" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              .btn-shape { 
+                fill: #1f7a8c; 
+                cursor: pointer;
+                transition: fill 200ms ease, transform 150ms ease;
+              }
+              .btn-shape:hover { 
+                fill: #ff8a3d; 
+                transform: translateY(-2px);
+              }
+              .btn-shape:active {
+                transform: translateY(1px);
+              }
+              .pulse-ring {
+                fill: none;
+                stroke: #1f7a8c;
+                stroke-width: 2;
+                opacity: 0;
+                transition: opacity 300ms, transform 300ms;
+                transform-origin: center;
+              }
+              .pulse-target:hover .pulse-ring {
+                opacity: 1;
+                transform: scale(1.3);
+              }
+            </style>
+            <rect x="20" y="30" width="70" height="40" rx="8" class="btn-shape" />
+            <g class="pulse-target" style="cursor: pointer;">
+              <circle cx="150" cy="50" r="25" fill="#13262f" />
+              <circle cx="150" cy="50" r="25" class="pulse-ring" />
+            </g>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;style&gt;</span>
+  .btn {
+    fill: #1f7a8c;
+    cursor: pointer;
+    transition: fill 200ms,
+                transform 150ms;
+  }
+  .btn:hover {
+    fill: #ff8a3d;
+    transform: translateY(-2px);
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  <span class="comment">/* Pulse ring effect */</span>
+  .pulse-ring {
+    opacity: 0;
+    transition: opacity 300ms,
+                transform 300ms;
+  }
+  .target:hover .pulse-ring {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+<span class="tag">&lt;/style&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>Links &amp; Cursor Styles</h3>
+          <p>Make SVG elements clickable with <code>&lt;a&gt;</code> and control cursor appearance.</p>
+        </div>
+        <button class="load-button" data-svg="interact-links">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="interact-links" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              .link-rect { fill: #1f7a8c; transition: fill 150ms; }
+              .link-rect:hover { fill: #0f5c69; }
+            </style>
+            <a href="https://freesvg.org" target="_blank">
+              <rect x="20" y="25" width="70" height="50" rx="6" class="link-rect" />
+              <text x="55" y="55" text-anchor="middle" fill="white" font-size="12" font-family="Arial" style="pointer-events: none;">Click me</text>
+            </a>
+            <rect x="110" y="25" width="70" height="50" rx="6" fill="#ff8a3d" style="cursor: grab;" />
+            <text x="145" y="55" text-anchor="middle" fill="white" font-size="11" font-family="Arial" style="pointer-events: none;">cursor: grab</text>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="comment">&lt;!-- Wrap in anchor for links --&gt;</span>
+<span class="tag">&lt;a</span> <span class="attr">href</span>=<span class="val">"https://example.com"</span>
+   <span class="attr">target</span>=<span class="val">"_blank"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;rect</span> <span class="attr">class</span>=<span class="val">"link-rect"</span> <span class="tag">/&gt;</span>
+  <span class="tag">&lt;text</span> <span class="attr">style</span>=<span class="val">"pointer-events: none"</span><span class="tag">&gt;</span>
+    Click me
+  <span class="tag">&lt;/text&gt;</span>
+<span class="tag">&lt;/a&gt;</span>
+
+<span class="comment">&lt;!-- Custom cursor --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">style</span>=<span class="val">"cursor: grab"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">style</span>=<span class="val">"cursor: pointer"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">style</span>=<span class="val">"cursor: crosshair"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>Pointer Events Control</h3>
+          <p>Control which elements respond to mouse/touch using <code>pointer-events</code>.</p>
+        </div>
+        <button class="load-button" data-svg="interact-pointer">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="interact-pointer" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              .base { fill: #1f7a8c; cursor: pointer; transition: fill 150ms; }
+              .base:hover { fill: #ff8a3d; }
+              .overlay { fill: rgba(19,38,47,0.3); pointer-events: none; }
+            </style>
+            <rect x="20" y="20" width="60" height="60" class="base" />
+            <rect x="40" y="40" width="60" height="60" class="overlay" />
+            <text x="70" y="75" font-size="9" fill="#13262f" style="pointer-events: none;">Overlay passes through</text>
+            <rect x="130" y="30" width="50" height="40" rx="4" fill="#13262f" style="pointer-events: none; opacity: 0.4;" />
+            <text x="155" y="55" text-anchor="middle" font-size="8" fill="white" style="pointer-events: none;">Disabled</text>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;style&gt;</span>
+  .base {
+    fill: #1f7a8c;
+    cursor: pointer;
+  }
+  .base:hover { fill: #ff8a3d; }
+
+  <span class="comment">/* Overlay that passes clicks through */</span>
+  .overlay {
+    fill: rgba(0,0,0,0.3);
+    pointer-events: none;
+  }
+<span class="tag">&lt;/style&gt;</span>
+
+<span class="comment">&lt;!-- Clickable base layer --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">class</span>=<span class="val">"base"</span> <span class="tag">/&gt;</span>
+<span class="comment">&lt;!-- Non-interactive overlay --&gt;</span>
+<span class="tag">&lt;rect</span> <span class="attr">class</span>=<span class="val">"overlay"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ANIMATION -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="animation" class="section-title">Animation</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>CSS Keyframe Animation</h3>
+          <p>Animate SVG elements using standard CSS <code>@keyframes</code> and <code>animation</code> properties.</p>
+        </div>
+        <button class="load-button" data-svg="anim-css-keyframes">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="anim-css-keyframes" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              @keyframes pulse {
+                0%, 100% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.2); opacity: 0.7; }
+              }
+              @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+              }
+              @keyframes bounce {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-15px); }
+              }
+              .pulse-circle { 
+                animation: pulse 1.5s ease-in-out infinite;
+                transform-origin: center;
+              }
+              .spin-rect {
+                animation: spin 3s linear infinite;
+                transform-origin: 100px 50px;
+              }
+              .bounce-circle {
+                animation: bounce 0.8s ease-in-out infinite;
+              }
+            </style>
+            <circle cx="40" cy="50" r="20" fill="#1f7a8c" class="pulse-circle" />
+            <rect x="85" y="35" width="30" height="30" fill="#ff8a3d" class="spin-rect" />
+            <circle cx="160" cy="60" r="15" fill="#13262f" class="bounce-circle" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;style&gt;</span>
+  @keyframes pulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.2);
+      opacity: 0.7;
+    }
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+    transform-origin: center;
+  }
+  .spin {
+    animation: spin 3s linear infinite;
+    transform-origin: center;
+  }
+<span class="tag">&lt;/style&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>SMIL &lt;animate&gt; Element</h3>
+          <p>Native SVG animation using <code>&lt;animate&gt;</code>, <code>&lt;animateTransform&gt;</code>, and <code>&lt;animateMotion&gt;</code>.</p>
+        </div>
+        <button class="load-button" data-svg="anim-smil">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="anim-smil" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="40" cy="50" r="15" fill="#1f7a8c">
+              <animate attributeName="r" values="15;22;15" dur="1s" repeatCount="indefinite" />
+            </circle>
+            <rect x="80" y="35" width="30" height="30" fill="#ff8a3d">
+              <animateTransform attributeName="transform" type="rotate" from="0 95 50" to="360 95 50" dur="2s" repeatCount="indefinite" />
+            </rect>
+            <circle cx="0" cy="0" r="8" fill="#13262f">
+              <animateMotion path="M160,50 Q180,20 180,50 Q180,80 160,50" dur="1.5s" repeatCount="indefinite" />
+            </circle>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="comment">&lt;!-- Animate attribute --&gt;</span>
+<span class="tag">&lt;circle</span> <span class="attr">r</span>=<span class="val">"15"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;animate</span>
+    <span class="attr">attributeName</span>=<span class="val">"r"</span>
+    <span class="attr">values</span>=<span class="val">"15;22;15"</span>
+    <span class="attr">dur</span>=<span class="val">"1s"</span>
+    <span class="attr">repeatCount</span>=<span class="val">"indefinite"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/circle&gt;</span>
+
+<span class="comment">&lt;!-- Animate transform --&gt;</span>
+<span class="tag">&lt;rect&gt;</span>
+  <span class="tag">&lt;animateTransform</span>
+    <span class="attr">attributeName</span>=<span class="val">"transform"</span>
+    <span class="attr">type</span>=<span class="val">"rotate"</span>
+    <span class="attr">from</span>=<span class="val">"0 50 50"</span>
+    <span class="attr">to</span>=<span class="val">"360 50 50"</span>
+    <span class="attr">dur</span>=<span class="val">"2s"</span>
+    <span class="attr">repeatCount</span>=<span class="val">"indefinite"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/rect&gt;</span>
+
+<span class="comment">&lt;!-- Animate along path --&gt;</span>
+<span class="tag">&lt;circle&gt;</span>
+  <span class="tag">&lt;animateMotion</span>
+    <span class="attr">path</span>=<span class="val">"M0,0 Q20,-30 20,0 Q20,30 0,0"</span>
+    <span class="attr">dur</span>=<span class="val">"1.5s"</span>
+    <span class="attr">repeatCount</span>=<span class="val">"indefinite"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/circle&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>Stroke Animation (Line Drawing)</h3>
+          <p>Animate <code>stroke-dashoffset</code> to create a "drawing" effect.</p>
+        </div>
+        <button class="load-button" data-svg="anim-stroke-draw">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="anim-stroke-draw" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              @keyframes draw {
+                from { stroke-dashoffset: 300; }
+                to { stroke-dashoffset: 0; }
+              }
+              .draw-path {
+                fill: none;
+                stroke: #1f7a8c;
+                stroke-width: 3;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                stroke-dasharray: 300;
+                stroke-dashoffset: 300;
+                animation: draw 2s ease forwards infinite;
+              }
+            </style>
+            <path class="draw-path" d="M20,80 Q50,10 100,50 T180,30" />
+            <circle cx="20" cy="80" r="4" fill="#ff8a3d" />
+            <circle cx="180" cy="30" r="4" fill="#ff8a3d" />
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;style&gt;</span>
+  @keyframes draw {
+    from { stroke-dashoffset: 300; }
+    to { stroke-dashoffset: 0; }
+  }
+  .draw-path {
+    fill: none;
+    stroke: #1f7a8c;
+    stroke-width: 3;
+    stroke-linecap: round;
+    <span class="comment">/* Total path length */</span>
+    stroke-dasharray: 300;
+    <span class="comment">/* Start hidden */</span>
+    stroke-dashoffset: 300;
+    animation: draw 2s ease forwards;
+  }
+<span class="tag">&lt;/style&gt;</span>
+<span class="tag">&lt;path</span> <span class="attr">class</span>=<span class="val">"draw-path"</span>
+      <span class="attr">d</span>=<span class="val">"M20,80 Q50,10 100,50 T180,30"</span> <span class="tag">/&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>Color &amp; Morph Animation</h3>
+          <p>Animate colors smoothly and morph between path shapes using CSS or SMIL.</p>
+        </div>
+        <button class="load-button" data-svg="anim-color-morph">Load in Workbench</button>
+      </div>
+      <div class="example-body">
+        <div class="example-preview">
+          <svg id="anim-color-morph" viewBox="0 0 200 100" width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+            <style>
+              @keyframes colorCycle {
+                0% { fill: #1f7a8c; }
+                33% { fill: #ff8a3d; }
+                66% { fill: #13262f; }
+                100% { fill: #1f7a8c; }
+              }
+              .color-shift {
+                animation: colorCycle 3s ease-in-out infinite;
+              }
+            </style>
+            <circle cx="50" cy="50" r="30" class="color-shift" />
+            <path fill="#1f7a8c">
+              <animate attributeName="d" dur="2s" repeatCount="indefinite"
+                values="M120,20 L180,20 L180,80 L120,80 Z;
+                        M130,30 L170,30 L180,50 L150,80 L120,50 Z;
+                        M120,20 L180,20 L180,80 L120,80 Z" />
+            </path>
+          </svg>
+        </div>
+        <div class="example-code">
+<pre><span class="tag">&lt;style&gt;</span>
+  @keyframes colorCycle {
+    0% { fill: #1f7a8c; }
+    33% { fill: #ff8a3d; }
+    66% { fill: #13262f; }
+    100% { fill: #1f7a8c; }
+  }
+  .color-shift {
+    animation: colorCycle 3s infinite;
+  }
+<span class="tag">&lt;/style&gt;</span>
+
+<span class="comment">&lt;!-- Path morphing with SMIL --&gt;</span>
+<span class="tag">&lt;path&gt;</span>
+  <span class="tag">&lt;animate</span>
+    <span class="attr">attributeName</span>=<span class="val">"d"</span>
+    <span class="attr">dur</span>=<span class="val">"2s"</span>
+    <span class="attr">repeatCount</span>=<span class="val">"indefinite"</span>
+    <span class="attr">values</span>=<span class="val">"M...rect;
+            M...pentagon;
+            M...rect"</span> <span class="tag">/&gt;</span>
+<span class="tag">&lt;/path&gt;</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- EXTERNAL RESOURCES -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <h2 id="external" class="section-title">External SVG Resources</h2>
+
+    <article class="example-card">
+      <div class="example-header">
+        <div>
+          <h3>FreeSVG.org - Public Domain SVGs</h3>
+          <p>Browse thousands of free, public-domain SVG illustrations ready to use in your projects.</p>
+        </div>
+        <a href="https://freesvg.org/" target="_blank" rel="noreferrer" class="load-button" style="text-decoration: none;">Visit FreeSVG</a>
+      </div>
+      <div class="example-body">
+        <div class="example-preview" style="flex-direction: column; gap: 8px;">
+          <svg viewBox="0 0 200 80" width="200" height="80" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="10" width="55" height="60" rx="4" fill="#f0ebe3" stroke="#ddd" />
+            <rect x="72" y="10" width="55" height="60" rx="4" fill="#f0ebe3" stroke="#ddd" />
+            <rect x="134" y="10" width="55" height="60" rx="4" fill="#f0ebe3" stroke="#ddd" />
+            <text x="37" y="45" text-anchor="middle" font-size="20">🌻</text>
+            <text x="100" y="45" text-anchor="middle" font-size="20">🚗</text>
+            <text x="162" y="45" text-anchor="middle" font-size="20">🏠</text>
+          </svg>
+          <span style="font-size: 0.85rem; color: var(--app-muted);">100,000+ free SVG clipart images</span>
+        </div>
+        <div class="example-code">
+<pre><span class="comment">&lt;!-- Download any SVG from FreeSVG.org --&gt;</span>
+<span class="comment">&lt;!-- Then load it here via the File panel --&gt;</span>
+
+Popular categories:
+• Animals &amp; Nature
+• People &amp; Characters  
+• Objects &amp; Items
+• Symbols &amp; Icons
+• Vehicles &amp; Transport
+• Buildings &amp; Architecture</pre>
+        </div>
+      </div>
+    </article>
+
+  </main>
+
+  <div id="toast" class="toast">SVG copied to clipboard!</div>
+
+  <script>
+    // Handle "Load in Workbench" buttons
+    document.querySelectorAll('.load-button[data-svg]').forEach(button => {
+      button.addEventListener('click', () => {
+        const svgId = button.dataset.svg;
+        const svgElement = document.getElementById(svgId);
+        if (!svgElement) return;
+
+        // Clone and clean the SVG
+        const clone = svgElement.cloneNode(true);
+        clone.removeAttribute('id');
+        
+        // Serialize to string
+        const serializer = new XMLSerializer();
+        let svgString = serializer.serializeToString(clone);
+        
+        // Add XML declaration if missing
+        if (!svgString.startsWith('<?xml')) {
+          svgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + svgString;
+        }
+
+        // Try to communicate with parent window (if in iframe)
+        if (window.opener) {
+          window.opener.postMessage({ type: 'svg-reference:load', svg: svgString }, '*');
+          showToast('SVG sent to workbench!');
+        } else if (window.parent !== window) {
+          window.parent.postMessage({ type: 'svg-reference:load', svg: svgString }, '*');
+          showToast('SVG sent to workbench!');
+        } else {
+          // Copy to clipboard as fallback
+          navigator.clipboard.writeText(svgString).then(() => {
+            showToast('SVG copied to clipboard! Paste in workbench.');
+          }).catch(() => {
+            // Last resort: localStorage
+            try {
+              localStorage.setItem('svg-reference-pending', svgString);
+              showToast('SVG ready! Open workbench to load.');
+            } catch (e) {
+              showToast('Could not transfer SVG.');
+            }
+          });
+        }
+      });
+    });
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('visible');
+      setTimeout(() => {
+        toast.classList.remove('visible');
+      }, 2500);
+    }
+
+    // Check if there's a pending SVG to load from this page
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'svg-reference:request') {
+        const pending = localStorage.getItem('svg-reference-pending');
+        if (pending) {
+          event.source.postMessage({ type: 'svg-reference:load', svg: pending }, '*');
+          localStorage.removeItem('svg-reference-pending');
+        }
+      }
+    });
+  </script>
+</body>
+</html>

@@ -366,12 +366,18 @@ const exportPresetCards: Array<{ id: ExportVariant; title: string; description: 
 ];
 
 const resourceCards: Array<{
-  id: 'examples' | 'addon' | 'discord' | 'freesvg';
+  id: 'reference' | 'examples' | 'addon' | 'discord' | 'freesvg';
   title: string;
   description: string;
   href: string;
   note?: string;
 }> = [
+  {
+    id: 'reference',
+    title: 'SVG Reference',
+    description: 'Interactive guide to SVG elements, styling, interaction, and animation with live examples.',
+    href: './svg-reference.html',
+  },
   {
     id: 'examples',
     title: 'Example SVGs',
@@ -1409,6 +1415,30 @@ function App() {
       window.removeEventListener('keydown', handleWindowKeyDown);
     };
   }, [isSettingsOpen]);
+
+  // Listen for SVG loads from the reference page
+  useEffect(() => {
+    function handleReferenceMessage(event: MessageEvent) {
+      if (event.data && event.data.type === 'svg-reference:load' && typeof event.data.svg === 'string') {
+        setSource(event.data.svg);
+        setSourceActionMessage('Loaded SVG from reference page.');
+      }
+    }
+
+    window.addEventListener('message', handleReferenceMessage);
+
+    // Also check localStorage for pending SVG from reference page
+    const pending = localStorage.getItem('svg-reference-pending');
+    if (pending) {
+      setSource(pending);
+      setSourceActionMessage('Loaded SVG from reference page.');
+      localStorage.removeItem('svg-reference-pending');
+    }
+
+    return () => {
+      window.removeEventListener('message', handleReferenceMessage);
+    };
+  }, []);
 
   useEffect(() => {
     const container = previewFrameRef.current;
@@ -6198,7 +6228,6 @@ function App() {
                   rel="noreferrer"
                   onClick={closeResourcesModal}
                 >
-                  <span className="resource-card-kicker">Resource</span>
                   <strong>{resource.title}</strong>
                   <span>{resource.description}</span>
                   {resource.note ? <small>{resource.note}</small> : null}
