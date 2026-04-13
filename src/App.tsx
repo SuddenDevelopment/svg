@@ -388,7 +388,7 @@ const resourceCards: Array<{
     id: 'addon',
     title: 'Blender Addon',
     description: 'Open the published Blender addon repository from the same owner.',
-    href: 'https://github.com/SuddenDevelopment/blender-manifest-addon',
+    href: '/SpecIO.zip',
   },
   {
     id: 'discord',
