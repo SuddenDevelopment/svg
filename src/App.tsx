@@ -394,7 +394,7 @@ const resourceCards: Array<{
     id: 'discord',
     title: 'Discord link',
     description: 'Join the community Discord server to discuss SVG tooling, share projects, and get support.',
-    href: 'https://discord.gg/zgfZUGmK8F',
+    href: 'https://discord.gg/TVg6gyzyGs',
   },
   {
     id: 'freesvg',

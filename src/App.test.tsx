@@ -241,7 +241,7 @@ describe('App', () => {
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: /Example SVGs/i })).toHaveAttribute('href', 'https://github.com/SuddenDevelopment/svg/tree/main/tests/SVG');
     expect(within(dialog).getByRole('link', { name: /Blender Addon/i })).toHaveAttribute('href', '/SpecIO.zip');
-    expect(within(dialog).getByRole('link', { name: /Discord link/i })).toHaveAttribute('href', 'https://discord.gg/zgfZUGmK8F');
+    expect(within(dialog).getByRole('link', { name: /Discord link/i })).toHaveAttribute('href', 'https://discord.gg/TVg6gyzyGs');
     expect(within(dialog).getByRole('link', { name: /FreeSVG/i })).toHaveAttribute('href', 'https://freesvg.org/');
 
     fireEvent.keyDown(window, { key: 'Escape' });
