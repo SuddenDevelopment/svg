@@ -1,0 +1,1659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpecIO-User-Manual.md</title>
+  <link rel="stylesheet" href="SpecIO-User-Manual.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body class="theme-modern-dark">
+  <span class="sync-anchor" data-block="0" data-line="1"></span><p><img src="SpecIO-User-Manual_images/svg-lab-logo-white-1.png?t=1776979691053" alt="svg-lab-logo-white">
+<small>Created by Anthony Aragues</p>
+<span class="sync-anchor" data-block="1" data-line="3"></span><h1>SpecIO User Manual</h1>
+<span class="sync-anchor" data-block="2" data-line="6"></span><p>SpecIO is a Blender 5.1+ extension for importing and exporting SVG files. Bring vector artwork into Blender as editable curves, text, and image planes — and write Blender curves, text, image planes, and even camera-view 3D scenes back out as clean SVG.</p>
+<span class="sync-anchor" data-block="3" data-line="8"></span><p><img src="images/sidebar-overview.png" alt="SpecIO sidebar overview"></p>
+<span class="sync-anchor" data-block="4" data-line="10"></span><h2>Contents</h2>
+<span class="sync-anchor" data-block="5" data-line="12"></span><ol>
+<li>
+<span class="sync-anchor" data-block="6" data-line="12"></span><a href="#1-installation">Installation</a></li>
+<li>
+<span class="sync-anchor" data-block="7" data-line="13"></span><a href="#2-the-svg-sidebar">The SVG Sidebar</a></li>
+<li>
+<span class="sync-anchor" data-block="8" data-line="14"></span><a href="#3-importing-svg">Importing SVG</a></li>
+<li>
+<span class="sync-anchor" data-block="9" data-line="15"></span><a href="#4-exporting-svg">Exporting SVG</a></li>
+<li>
+<span class="sync-anchor" data-block="10" data-line="16"></span><a href="#5-tools">Tools</a></li>
+<li>
+<span class="sync-anchor" data-block="11" data-line="17"></span><a href="#6-managed-gradient-workflow">Managed Gradient Workflow</a></li>
+<li>
+<span class="sync-anchor" data-block="12" data-line="18"></span><a href="#7-settings-reference">Settings Reference</a></li>
+<li>
+<span class="sync-anchor" data-block="13" data-line="19"></span><a href="#8-svg-support">SVG Support</a></li>
+<li>
+<span class="sync-anchor" data-block="14" data-line="20"></span><a href="#9-troubleshooting">Troubleshooting</a></li>
+<li>
+<span class="sync-anchor" data-block="15" data-line="21"></span><a href="#10-reporting-bugs">Reporting Bugs</a></li>
+</ol>
+<span class="sync-anchor" data-block="16" data-line="23"></span><h2>Quick Start</h2>
+<span class="sync-anchor" data-block="17" data-line="25"></span><ol>
+<li>
+<span class="sync-anchor" data-block="18" data-line="25"></span>Install and enable SpecIO from <code>Edit &gt; Preferences &gt; Extensions</code>.</li>
+<li>
+<span class="sync-anchor" data-block="19" data-line="26"></span>Open the 3D Viewport and press <code>N</code> to open the sidebar. Click the <strong>SVG</strong> tab. The panel header reads <code>SpecIO v&lt;version&gt;</code>.</li>
+<li>
+<span class="sync-anchor" data-block="20" data-line="27"></span>In the <strong>IMPORT</strong> section, click <code>Import SVG</code> and choose a <code>.svg</code> file. Imported geometry appears as Blender curves, text objects, and image planes inside a collection named <code>&lt;filename&gt;_SVG</code>.</li>
+<li>
+<span class="sync-anchor" data-block="21" data-line="28"></span>To export, select one or more curve, text, or image objects and click <code>Export Selected</code> in the <strong>EXPORT</strong> section.</li>
+<li>
+<span class="sync-anchor" data-block="22" data-line="29"></span>To export 2D silhouettes of 3D meshes, switch the viewport to camera view (<code>Numpad 0</code>), select the meshes, and click <code>Export Selected</code>.</li>
+</ol>
+<span class="sync-anchor" data-block="23" data-line="31"></span><hr>
+<span class="sync-anchor" data-block="24" data-line="33"></span><h2>1. Installation</h2>
+<span class="sync-anchor" data-block="25" data-line="35"></span><p>SpecIO requires <strong>Blender 5.1.0 or newer</strong>. It does not install in older Blender versions.</p>
+<span class="sync-anchor" data-block="26" data-line="37"></span><p>Operating systems: Windows, macOS, and Linux. Windows is the primary validated platform.</p>
+<span class="sync-anchor" data-block="27" data-line="39"></span><h3>Install from a built <code>.zip</code></h3>
+<span class="sync-anchor" data-block="28" data-line="41"></span><ol>
+<li>
+<span class="sync-anchor" data-block="29" data-line="41"></span>Obtain a built SpecIO extension <code>.zip</code> (release artifact or your own build).</li>
+<li>
+<span class="sync-anchor" data-block="30" data-line="42"></span>In Blender, open <code>Edit &gt; Preferences &gt; Extensions</code>.</li>
+<li>
+<span class="sync-anchor" data-block="31" data-line="43"></span>Click the dropdown at the top right and choose <code>Install from Disk...</code>.</li>
+<li>
+<span class="sync-anchor" data-block="32" data-line="44"></span>Select the SpecIO <code>.zip</code> file.</li>
+<li>
+<span class="sync-anchor" data-block="33" data-line="45"></span>Tick the checkbox next to <strong>SpecIO</strong> in the extensions list to enable it.</li>
+</ol>
+<span class="sync-anchor" data-block="34" data-line="47"></span><h3>Verify the install</h3>
+<span class="sync-anchor" data-block="35" data-line="49"></span><ol>
+<li>
+<span class="sync-anchor" data-block="36" data-line="49"></span>Open the 3D Viewport.</li>
+<li>
+<span class="sync-anchor" data-block="37" data-line="50"></span>Press <code>N</code> to open the sidebar.</li>
+<li>
+<span class="sync-anchor" data-block="38" data-line="51"></span>You should see an <strong>SVG</strong> tab containing a panel titled <code>SpecIO v2.2.0</code> (or your installed version).</li>
+</ol>
+<span class="sync-anchor" data-block="39" data-line="53"></span><p>If the SVG tab is missing, return to <code>Edit &gt; Preferences &gt; Extensions</code>, search for “SpecIO”, and confirm the checkbox is enabled.</p>
+<span class="sync-anchor" data-block="40" data-line="55"></span><h3>Uninstall</h3>
+<span class="sync-anchor" data-block="41" data-line="57"></span><ol>
+<li>
+<span class="sync-anchor" data-block="42" data-line="57"></span>In <code>Edit &gt; Preferences &gt; Extensions</code>, find SpecIO.</li>
+<li>
+<span class="sync-anchor" data-block="43" data-line="58"></span>Untick the checkbox to disable, or use the dropdown menu next to it to remove the extension entirely.</li>
+</ol>
+<span class="sync-anchor" data-block="44" data-line="60"></span><p>Disabling does not delete imported curves, text, image planes, or assigned gradient materials from any saved <code>.blend</code> file. Re-enabling SpecIO restores the panel and you can keep working with previously imported objects.</p>
+<span class="sync-anchor" data-block="45" data-line="62"></span><hr>
+<span class="sync-anchor" data-block="46" data-line="64"></span><h2>2. The SVG Sidebar</h2>
+<span class="sync-anchor" data-block="47" data-line="66"></span><p>All SpecIO controls live in the 3D Viewport’s N-panel sidebar, under the <strong>SVG</strong> tab. Press <code>N</code> in the 3D Viewport to toggle it.</p>
+<span class="sync-anchor" data-block="48" data-line="68"></span><p>The tab contains a single panel whose title shows the addon version (e.g. <strong>SpecIO v2.2.0</strong>). Inside it are two boxed action sections — <strong>IMPORT</strong> and <strong>EXPORT</strong> — drawn in the main panel itself, plus three collapsible sub-panels below:</p>
+<span class="sync-anchor" data-block="49" data-line="70"></span><table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Where</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IMPORT</td>
+<td>Boxed section in the main panel</td>
+<td>Import-time settings + the <strong>Import SVG</strong> button</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Boxed section in the main panel</td>
+<td>Export-time settings + the <strong>Export Selected</strong> button</td>
+</tr>
+<tr>
+<td>Tools</td>
+<td>Sub-panel</td>
+<td>Curve utilities: <strong>Copy Active Curve Settings</strong>, <strong>Split Selected Path</strong></td>
+</tr>
+<tr>
+<td>Gradient Material</td>
+<td>Sub-panel</td>
+<td>Assign and edit SpecIO-managed SVG gradients on the active curve</td>
+</tr>
+<tr>
+<td>Addon</td>
+<td>Sub-panel</td>
+<td>Open addon preferences and reset per-scene settings</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="50" data-line="78"></span><p>The <strong>Tools</strong>, <strong>Gradient Material</strong>, and <strong>Addon</strong> sub-panels are collapsed by default. Click a sub-panel header to expand or collapse it.</p>
+<span class="sync-anchor" data-block="51" data-line="80"></span><blockquote>
+<span class="sync-anchor" data-block="52" data-line="80"></span><p>The sidebar is only visible in <strong>Object Mode</strong>. It does not appear in Edit, Sculpt, or Pose mode.</p>
+</blockquote>
+<span class="sync-anchor" data-block="53" data-line="82"></span><h3>IMPORT section</h3>
+<span class="sync-anchor" data-block="54" data-line="84"></span><p>A boxed section at the top of the main panel.</p>
+<span class="sync-anchor" data-block="55" data-line="86"></span><p><img src="images/59af528a/import.svg" alt="IMPORT section callouts"></p>
+<span class="sync-anchor" data-block="56" data-line="88"></span><ol>
+<li>
+<span class="sync-anchor" data-block="57" data-line="88"></span><strong>Scale</strong> — multiplier applied to imported geometry.</li>
+<li>
+<span class="sync-anchor" data-block="58" data-line="89"></span><strong>Resolution</strong> — curve resolution hint (reserved for future use).</li>
+<li>
+<span class="sync-anchor" data-block="59" data-line="90"></span><strong>Height</strong> — Z-stacking mode for imported objects (<code>Flat</code>, <code>Per Object</code>, <code>Per Layer</code>).</li>
+<li>
+<span class="sync-anchor" data-block="60" data-line="91"></span><strong>Height Step Ratio</strong> — Z spacing between stacked objects, as a fraction of the SVG document size.</li>
+<li>
+<span class="sync-anchor" data-block="61" data-line="92"></span><strong>Stroke Overlay Ratio</strong> — Z clearance between a fill object and its stroke helper.</li>
+<li>
+<span class="sync-anchor" data-block="62" data-line="93"></span><strong>Create Stroke Objects</strong> — when on, shapes that have both fill and stroke import as two objects (a fill curve and a separate stroke helper).</li>
+<li>
+<span class="sync-anchor" data-block="63" data-line="94"></span><strong>Intelligent Split Paths</strong> — when on, complex paths with holes may be split into separate objects so they fill correctly.</li>
+<li>
+<span class="sync-anchor" data-block="64" data-line="95"></span><strong>Import SVG</strong> button — opens a file browser to choose the <code>.svg</code> file to import.</li>
+</ol>
+<span class="sync-anchor" data-block="65" data-line="97"></span><blockquote>
+<span class="sync-anchor" data-block="66" data-line="97"></span><p><strong>Note:</strong> <code>Height Step Ratio</code> and <code>Stroke Overlay Ratio</code> default to <code>0.001</code> but display as <code>0.00</code> in the panel because Blender rounds float displays to two decimals. The underlying value is what the importer uses.</p>
+</blockquote>
+<span class="sync-anchor" data-block="67" data-line="99"></span><h3>EXPORT section</h3>
+<span class="sync-anchor" data-block="68" data-line="101"></span><p>A boxed section below IMPORT.</p>
+<span class="sync-anchor" data-block="69" data-line="103"></span><p><img src="images/59af528a/export.svg" alt="EXPORT section callouts"></p>
+<span class="sync-anchor" data-block="70" data-line="105"></span><ol>
+<li>
+<span class="sync-anchor" data-block="71" data-line="105"></span><strong>Scale</strong> — multiplier applied to exported geometry.</li>
+<li>
+<span class="sync-anchor" data-block="72" data-line="106"></span><strong>Precision</strong> — decimal places written for SVG numbers (0–10).</li>
+<li>
+<span class="sync-anchor" data-block="73" data-line="107"></span><strong>Default Fill</strong> — fallback fill color when an object has no preserved SVG fill or material color.</li>
+<li>
+<span class="sync-anchor" data-block="74" data-line="108"></span><strong>Apply Stroke</strong> — when on, exported objects without an explicit stroke get a default stroke. Enables fields 5 and 6.</li>
+<li>
+<span class="sync-anchor" data-block="75" data-line="109"></span><strong>Stroke Color</strong> — color used by Apply Stroke (only active when Apply Stroke is on).</li>
+<li>
+<span class="sync-anchor" data-block="76" data-line="110"></span><strong>Stroke Width</strong> — width used by Apply Stroke.</li>
+<li>
+<span class="sync-anchor" data-block="77" data-line="111"></span><strong>Images</strong> — <code>Embed</code> (base64 inline) or <code>Link</code> (relative file path) for raster image export.</li>
+<li>
+<span class="sync-anchor" data-block="78" data-line="112"></span><strong>Cull to Camera</strong> — drop geometry that is entirely outside the camera viewport during camera export.</li>
+<li>
+<span class="sync-anchor" data-block="79" data-line="113"></span><strong>Mesh Color</strong> — <code>Material Heuristic</code> (use Base Color directly) or <code>Sample Final Camera Color</code> (render Eevee and sample the lit color per face). When <code>Sample Final Camera Color</code> is selected, an info box appears warning that camera sampling keeps only visible front faces.</li>
+<li>
+<span class="sync-anchor" data-block="80" data-line="114"></span><strong>Export Selected</strong> button — opens a file browser to choose the output <code>.svg</code> path.</li>
+</ol>
+<span class="sync-anchor" data-block="81" data-line="116"></span><h3>Tools sub-panel</h3>
+<span class="sync-anchor" data-block="82" data-line="118"></span><p><img src="images/59af528a/tools.svg" alt="Tools sub-panel callouts"></p>
+<span class="sync-anchor" data-block="83" data-line="120"></span><ol>
+<li>
+<span class="sync-anchor" data-block="84" data-line="120"></span><strong>Copy Active Curve Settings</strong> — copies curve display settings (2D/3D mode, extrude, bevel, fill) from the active curve to the other selected curves.</li>
+<li>
+<span class="sync-anchor" data-block="85" data-line="121"></span><strong>Split Selected Path</strong> — splits the active multi-spline curve into separate Blender objects in a new collection.</li>
+<li>
+<span class="sync-anchor" data-block="86" data-line="122"></span><strong>Context-sensitive hint</strong> — shown below the buttons when the current selection isn’t valid for an operator. Possible messages:<span class="sync-anchor" data-block="87" data-line="123"></span><ul>
+<li>
+<span class="sync-anchor" data-block="88" data-line="123"></span><em>“Select target curves, then make the source active”</em> — no curve is active</li>
+<li>
+<span class="sync-anchor" data-block="89" data-line="124"></span><em>“Select at least two curves to copy settings”</em> — fewer than two curves are selected</li>
+<li>
+<span class="sync-anchor" data-block="90" data-line="125"></span><em>“Selected path has one spline”</em> — Split Selected Path would have nothing to split</li>
+</ul>
+</li>
+</ol>
+<span class="sync-anchor" data-block="91" data-line="127"></span><h3>Gradient Material sub-panel</h3>
+<span class="sync-anchor" data-block="92" data-line="129"></span><p><img src="images/59af528a/gradient.svg" alt="Gradient Material sub-panel callouts"></p>
+<span class="sync-anchor" data-block="93" data-line="131"></span><ol>
+<li>
+<span class="sync-anchor" data-block="94" data-line="131"></span><strong>Assign SpecIO Gradient</strong> — creates and assigns a managed gradient material to all selected curve objects.</li>
+<li>
+<span class="sync-anchor" data-block="95" data-line="132"></span><strong>Material name label</strong> — shows which material is currently being edited (the active curve’s first material slot).</li>
+<li>
+<span class="sync-anchor" data-block="96" data-line="133"></span><strong>Managed Gradient</strong> toggle — enables the full gradient editor below. When off, the material is treated as a regular Blender material at export time, and the hint <em>“Assign or enable to edit”</em> is shown instead of the editor.</li>
+</ol>
+<span class="sync-anchor" data-block="97" data-line="135"></span><p>If no curve is selected, only the <strong>Assign SpecIO Gradient</strong> button is shown. The full gradient editor (color stops, geometry, spread mode) only appears when a managed gradient is enabled — see <a href="#6-managed-gradient-workflow">§6 Managed Gradient Workflow</a> for the editor in detail.</p>
+<span class="sync-anchor" data-block="98" data-line="137"></span><h3>Addon sub-panel</h3>
+<span class="sync-anchor" data-block="99" data-line="139"></span><p><img src="images/59af528a/addon.svg" alt="Addon sub-panel callouts"></p>
+<span class="sync-anchor" data-block="100" data-line="141"></span><ol>
+<li>
+<span class="sync-anchor" data-block="101" data-line="141"></span><strong>Open Preferences</strong> — jumps to SpecIO’s section of the Blender addon preferences window.</li>
+<li>
+<span class="sync-anchor" data-block="102" data-line="142"></span><strong>Reset Scene Defaults</strong> — re-applies addon preference defaults to the current scene’s SpecIO settings, overwriting any per-scene changes.</li>
+</ol>
+<span class="sync-anchor" data-block="103" data-line="144"></span><hr>
+<span class="sync-anchor" data-block="104" data-line="146"></span><h2>3. Importing SVG</h2>
+<span class="sync-anchor" data-block="105" data-line="148"></span><p>The <strong>Import SVG</strong> action reads a <code>.svg</code> file and creates Blender objects in a new collection named <code>&lt;filename&gt;_SVG</code>. The collection is added under the active scene collection.</p>
+<span class="sync-anchor" data-block="106" data-line="150"></span><h3>Running the import</h3>
+<span class="sync-anchor" data-block="107" data-line="152"></span><ol>
+<li>
+<span class="sync-anchor" data-block="108" data-line="152"></span>Open the <strong>SVG</strong> sidebar tab.</li>
+<li>
+<span class="sync-anchor" data-block="109" data-line="153"></span>In the <strong>IMPORT</strong> section, review the import settings (see below).</li>
+<li>
+<span class="sync-anchor" data-block="110" data-line="154"></span>Click <strong>Import SVG</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="111" data-line="155"></span>Choose a <code>.svg</code> file in the file browser. Click <strong>Import SVG</strong> to confirm.</li>
+</ol>
+<span class="sync-anchor" data-block="112" data-line="157"></span><p>When the import succeeds, the newly created objects are selected and the first one becomes the active object. A success message appears in the status bar. On failure, an error message starting with <em>“Failed to import SVG:”</em> is reported and nothing is created.</p>
+<span class="sync-anchor" data-block="113" data-line="159"></span><p>A single <code>Ctrl+Z</code> after import removes everything the import created.</p>
+<span class="sync-anchor" data-block="114" data-line="161"></span><h3>What gets created</h3>
+<span class="sync-anchor" data-block="115" data-line="163"></span><table>
+<thead>
+<tr>
+<th>SVG element</th>
+<th>Becomes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;svg&gt;</code>, <code>&lt;g&gt;</code></td>
+<td>Blender collections (group hierarchy is preserved)</td>
+</tr>
+<tr>
+<td><code>&lt;rect&gt;</code>, <code>&lt;circle&gt;</code>, <code>&lt;ellipse&gt;</code>, <code>&lt;line&gt;</code>, <code>&lt;polyline&gt;</code>, <code>&lt;polygon&gt;</code>, <code>&lt;path&gt;</code></td>
+<td>Blender curve objects</td>
+</tr>
+<tr>
+<td><code>&lt;text&gt;</code></td>
+<td>Blender text objects</td>
+</tr>
+<tr>
+<td><code>&lt;image&gt;</code> (local file or embedded data)</td>
+<td>Blender mesh planes with the image as a texture</td>
+</tr>
+<tr>
+<td><code>&lt;linearGradient&gt;</code>, <code>&lt;radialGradient&gt;</code></td>
+<td>Blender materials with a node-based preview</td>
+</tr>
+<tr>
+<td><code>&lt;use&gt;</code> referencing a local element/group/symbol</td>
+<td>Inline-expanded clones of the referenced content</td>
+</tr>
+<tr>
+<td>Hidden elements (<code>display:none</code>, <code>visibility:hidden</code>)</td>
+<td>Skipped entirely</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="116" data-line="173"></span><p>Element groups become Blender collections. SVG <code>id</code> attributes are preserved as collection and object names where valid. When an <code>id</code> is missing, SpecIO assigns a stable fallback name (<code>path_1</code>, <code>group_2</code>, etc.) so re-imports are predictable.</p>
+<span class="sync-anchor" data-block="117" data-line="175"></span><h3>What’s preserved on import</h3>
+<span class="sync-anchor" data-block="118" data-line="177"></span><ul>
+<li>
+<span class="sync-anchor" data-block="119" data-line="177"></span>All standard SVG path commands (move, line, cubic/quadratic Bezier, arc, close).</li>
+<li>
+<span class="sync-anchor" data-block="120" data-line="178"></span>Fill, stroke, stroke width, line caps, line joins, opacity.</li>
+<li>
+<span class="sync-anchor" data-block="121" data-line="179"></span>Inline <code>style=&quot;...&quot;</code>, inherited styles, and CSS <code>&lt;style&gt;</code> blocks.</li>
+<li>
+<span class="sync-anchor" data-block="122" data-line="180"></span>Hidden elements are skipped (via <code>display:none</code>, <code>visibility:hidden</code>, or <code>fill:none</code> + <code>stroke:none</code>).</li>
+<li>
+<span class="sync-anchor" data-block="123" data-line="181"></span>All affine transforms (<code>translate</code>, <code>scale</code>, <code>rotate</code>, <code>matrix</code>, <code>skewX/Y</code>) including nested group transforms.</li>
+</ul>
+<span class="sync-anchor" data-block="124" data-line="183"></span><p>When a shape has both a fill and a stroke, SpecIO can create <strong>two</strong> Blender objects for it: the fill object and a <em>stroke helper</em> object placed slightly below the fill in Z. This keeps fill and stroke independently editable. Turn off <strong>Create Stroke Objects</strong> to disable.</p>
+<span class="sync-anchor" data-block="125" data-line="185"></span><h3>Import settings</h3>
+<span class="sync-anchor" data-block="126" data-line="187"></span><p>These live in the <strong>IMPORT</strong> section of the SVG sidebar.</p>
+<span class="sync-anchor" data-block="127" data-line="189"></span><h4>Scale</h4>
+<span class="sync-anchor" data-block="128" data-line="191"></span><p>Multiplier from SVG user units to Blender units. Default <code>1.0</code>. Range <code>0.001</code> to <code>1000.0</code>.</p>
+<span class="sync-anchor" data-block="129" data-line="193"></span><p>A 100×100 SVG drawn at scale <code>1.0</code> becomes 100 Blender units wide. Use <code>0.01</code> to map an SVG to roughly metric centimeters in a small scene.</p>
+<span class="sync-anchor" data-block="130" data-line="195"></span><h4>Resolution</h4>
+<span class="sync-anchor" data-block="131" data-line="197"></span><p>Default <code>64</code>. Reserved field; carried through but not currently used for spline subdivision (paths are constructed from real Bezier handles).</p>
+<span class="sync-anchor" data-block="132" data-line="199"></span><h4>Height (Z stacking mode)</h4>
+<span class="sync-anchor" data-block="133" data-line="201"></span><ul>
+<li>
+<span class="sync-anchor" data-block="134" data-line="201"></span><strong>Flat</strong> — every imported object has the same Z position (0).</li>
+<li>
+<span class="sync-anchor" data-block="135" data-line="202"></span><strong>Per Object</strong> — each imported object is offset by <strong>Height Step Ratio</strong> × document size, in document order. Avoids z-fighting between stacked filled shapes.</li>
+<li>
+<span class="sync-anchor" data-block="136" data-line="203"></span><strong>Per Layer</strong> — each top-level SVG layer or group gets one Z step; objects inside a layer share that Z. Useful for multi-layer Illustrator/Inkscape files.</li>
+</ul>
+<span class="sync-anchor" data-block="137" data-line="205"></span><p>Default: <strong>Per Object</strong>.</p>
+<span class="sync-anchor" data-block="138" data-line="207"></span><h4>Height Step Ratio</h4>
+<span class="sync-anchor" data-block="139" data-line="209"></span><p>The Z step used by <strong>Per Object</strong> and <strong>Per Layer</strong>, expressed as a fraction of the SVG document’s largest dimension. Default <code>0.001</code> (about 0.1%).</p>
+<span class="sync-anchor" data-block="140" data-line="211"></span><p>Set to <code>0.0</code> to keep all objects on the same plane while still using the stacking mode field for layout intent.</p>
+<span class="sync-anchor" data-block="141" data-line="213"></span><h4>Stroke Overlay Ratio</h4>
+<span class="sync-anchor" data-block="142" data-line="215"></span><p>Z clearance between a fill object and its stroke helper. Same units as <strong>Height Step Ratio</strong>. Default <code>0.001</code>.</p>
+<span class="sync-anchor" data-block="143" data-line="217"></span><p>This puts the stroke helper slightly <em>below</em> the fill so it shows behind the fill outline, matching SVG’s draw-order convention.</p>
+<span class="sync-anchor" data-block="144" data-line="219"></span><h4>Create Stroke Objects</h4>
+<span class="sync-anchor" data-block="145" data-line="221"></span><p>When <strong>on</strong> (default), shapes with both fill and stroke import as two Blender objects: the fill curve and a stroke helper named <code>&lt;id&gt;_stroke</code>.</p>
+<span class="sync-anchor" data-block="146" data-line="223"></span><p>When <strong>off</strong>, only the fill object is created and the stroke style is dropped at import time. Turn this off if your SVG has many fills+strokes and you only need fill geometry, or if stroke duplicates clutter your outliner.</p>
+<span class="sync-anchor" data-block="147" data-line="225"></span><h4>Intelligent Split Paths</h4>
+<span class="sync-anchor" data-block="148" data-line="227"></span><p>When <strong>on</strong> (default), the importer analyzes complex paths with holes and may split them into separate Blender objects per contour family, so each closed region renders correctly as a fill instead of getting confused by hole/outer-ring nesting.</p>
+<span class="sync-anchor" data-block="149" data-line="229"></span><p>When <strong>off</strong>, every SVG <code>&lt;path&gt;</code> becomes exactly one Blender curve object with all its splines preserved literally. Disable this if you want the simplest possible 1:1 element mapping at the cost of correct rendering of compound fills.</p>
+<span class="sync-anchor" data-block="150" data-line="231"></span><p>The same logic powers the manual <strong>Split Selected Path</strong> tool — see <a href="#5-tools">Tools</a>.</p>
+<span class="sync-anchor" data-block="151" data-line="233"></span><h3>What the importer does not do</h3>
+<span class="sync-anchor" data-block="152" data-line="235"></span><p>See <a href="#8-svg-support">SVG Support</a> for the full list. Highlights:</p>
+<span class="sync-anchor" data-block="153" data-line="237"></span><ul>
+<li>
+<span class="sync-anchor" data-block="154" data-line="237"></span><strong>No remote raster images.</strong> <code>&lt;image href=&quot;http://...&quot;&gt;</code> (and <code>https://</code>, <code>ftp://</code>) are skipped for security. Local files and <code>data:</code> URIs work.</li>
+<li>
+<span class="sync-anchor" data-block="155" data-line="238"></span><strong>No script execution.</strong> Embedded <code>&lt;script&gt;</code> content is ignored.</li>
+<li>
+<span class="sync-anchor" data-block="156" data-line="239"></span><strong>No <code>&lt;tspan&gt;</code>, <code>&lt;textPath&gt;</code>, <code>&lt;clipPath&gt;</code>, <code>&lt;mask&gt;</code>, filters, or animation.</strong></li>
+<li>
+<span class="sync-anchor" data-block="157" data-line="240"></span><code>&lt;use&gt;</code> only resolves references to other elements within the same file.</li>
+<li>
+<span class="sync-anchor" data-block="158" data-line="241"></span>General SVG unit conversion (mm/pt/in) is not implemented. SpecIO honors <code>viewBox</code> for sizing.</li>
+</ul>
+<span class="sync-anchor" data-block="159" data-line="243"></span><h3>Re-importing a file</h3>
+<span class="sync-anchor" data-block="160" data-line="245"></span><p>Re-importing the same file creates a <em>new</em> <code>&lt;filename&gt;_SVG</code> collection and new objects each time. SpecIO does not deduplicate. To replace an import, delete the old collection (and its child objects) before re-importing.</p>
+<span class="sync-anchor" data-block="161" data-line="247"></span><hr>
+<span class="sync-anchor" data-block="162" data-line="249"></span><h2>4. Exporting SVG</h2>
+<span class="sync-anchor" data-block="163" data-line="251"></span><p>The <strong>Export Selected</strong> action writes selected Blender objects to a <code>.svg</code> file. SpecIO supports four kinds of source content in a single export:</p>
+<span class="sync-anchor" data-block="164" data-line="253"></span><ol>
+<li>
+<span class="sync-anchor" data-block="165" data-line="253"></span><strong>Curve objects</strong> — exported as SVG <code>&lt;path&gt;</code> data.</li>
+<li>
+<span class="sync-anchor" data-block="166" data-line="254"></span><strong>Text objects</strong> — exported as SVG paths derived from the text geometry.</li>
+<li>
+<span class="sync-anchor" data-block="167" data-line="255"></span><strong>Image planes</strong> — exported as SVG <code>&lt;image&gt;</code> elements (embedded base64 or linked file).</li>
+<li>
+<span class="sync-anchor" data-block="168" data-line="256"></span><strong>Mesh objects</strong> — exported as <strong>2D camera-projected silhouettes</strong> when the viewport is in camera view.</li>
+</ol>
+<span class="sync-anchor" data-block="169" data-line="258"></span><p>You can mix all four in one export. Original SVG sibling order is preserved when available, so re-exporting an imported SVG produces stable, predictable output.</p>
+<span class="sync-anchor" data-block="170" data-line="260"></span><h3>Running the export</h3>
+<span class="sync-anchor" data-block="171" data-line="262"></span><ol>
+<li>
+<span class="sync-anchor" data-block="172" data-line="262"></span>Select the objects you want to export. Selection rules differ by mode (see below).</li>
+<li>
+<span class="sync-anchor" data-block="173" data-line="263"></span>Open the <strong>SVG</strong> sidebar tab. The <strong>EXPORT</strong> section is below <strong>IMPORT</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="174" data-line="264"></span>Review the export settings.</li>
+<li>
+<span class="sync-anchor" data-block="175" data-line="265"></span>Click <strong>Export Selected</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="176" data-line="266"></span>Pick an output path. The file extension must be <code>.svg</code>.</li>
+</ol>
+<span class="sync-anchor" data-block="177" data-line="268"></span><p>On success, the status bar shows <em>“Successfully exported SVG to: &lt;path&gt;”</em>. On failure it shows the reason.</p>
+<span class="sync-anchor" data-block="178" data-line="270"></span><h3>What can be exported</h3>
+<span class="sync-anchor" data-block="179" data-line="272"></span><table>
+<thead>
+<tr>
+<th>Selected object</th>
+<th>Exported as</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Curve with at least one spline</td>
+<td>SVG <code>&lt;path&gt;</code></td>
+<td>Stroke helpers are skipped — their styling rejoins the fill object on export</td>
+</tr>
+<tr>
+<td>Text object</td>
+<td>SVG <code>&lt;path&gt;</code></td>
+<td>Position, transform, font size, and text alignment are converted back</td>
+</tr>
+<tr>
+<td>Image plane (created by SpecIO import)</td>
+<td>SVG <code>&lt;image&gt;</code></td>
+<td>Mode controlled by the <strong>Images</strong> setting (Embed or Link)</td>
+</tr>
+<tr>
+<td>Mesh</td>
+<td>2D camera silhouette path(s)</td>
+<td>Requires an active scene camera and the 3D viewport in camera view</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="180" data-line="279"></span><p>If you select only meshes without a camera-view viewport, the operator reports an error before opening the file browser:</p>
+<span class="sync-anchor" data-block="181" data-line="281"></span><ul>
+<li>
+<span class="sync-anchor" data-block="182" data-line="281"></span><em>“Active scene camera required for SVG export”</em> — set a camera in the scene.</li>
+<li>
+<span class="sync-anchor" data-block="183" data-line="282"></span><em>“SVG export requires the active 3D viewport to be in camera perspective”</em> — press <code>Numpad 0</code> in the viewport.</li>
+</ul>
+<span class="sync-anchor" data-block="184" data-line="284"></span><p>If you select objects but none of them match an exportable type, you get <em>“Select at least one curve, text, or image object to export…”</em></p>
+<span class="sync-anchor" data-block="185" data-line="286"></span><h3>Camera-projected export</h3>
+<span class="sync-anchor" data-block="186" data-line="288"></span><p>Whenever the viewport is in camera perspective and a scene camera is set, <strong>all</strong> selected geometry is projected through the camera into 2D SVG space:</p>
+<span class="sync-anchor" data-block="187" data-line="290"></span><ul>
+<li>
+<span class="sync-anchor" data-block="188" data-line="290"></span>Curve and text objects are projected using their world coordinates through the camera matrix.</li>
+<li>
+<span class="sync-anchor" data-block="189" data-line="291"></span>Mesh objects are silhouetted face-by-face (front-facing polygons only) and written as filled paths.</li>
+<li>
+<span class="sync-anchor" data-block="190" data-line="292"></span>Image planes are projected too.</li>
+</ul>
+<span class="sync-anchor" data-block="191" data-line="294"></span><p>If the viewport is <strong>not</strong> in camera perspective (or there is no scene camera), curves/text/images export using their XY world coordinates directly, and meshes are not exportable.</p>
+<span class="sync-anchor" data-block="192" data-line="296"></span><p>The exported SVG document size matches the camera’s render resolution (multiplied by the export <strong>Scale</strong>). If the render is set to 1920×1080 and Scale is <code>1.0</code>, the SVG <code>viewBox</code> will be 1920×1080.</p>
+<span class="sync-anchor" data-block="193" data-line="298"></span><h4>Cull to Camera</h4>
+<span class="sync-anchor" data-block="194" data-line="300"></span><p>When <strong>on</strong> (default), geometry whose projected bounding box falls entirely outside the camera viewport is dropped from output. This keeps off-screen content out of large camera-export files.</p>
+<span class="sync-anchor" data-block="195" data-line="302"></span><p>When <strong>off</strong>, off-screen content is exported as-is and may produce SVG paths outside the document bounds.</p>
+<span class="sync-anchor" data-block="196" data-line="304"></span><h4>Mesh Color Mode</h4>
+<span class="sync-anchor" data-block="197" data-line="306"></span><ul>
+<li>
+<span class="sync-anchor" data-block="198" data-line="306"></span><strong>Material Heuristic</strong> (default) — read the assigned material’s Base Color directly. Fast, deterministic, ignores lighting. Best when you want flat editorial-style fills.</li>
+<li>
+<span class="sync-anchor" data-block="199" data-line="307"></span><strong>Sample Final Camera Color</strong> — render the scene with Eevee from the active camera, then sample the lit color at each face’s projected centroid. Produces shaded-looking output. Slower; only front-facing polygons whose centroid is visible to the camera are kept.</li>
+</ul>
+<span class="sync-anchor" data-block="200" data-line="309"></span><p>When <strong>Sample Final Camera Color</strong> is selected, the panel shows an info banner reminding you of these tradeoffs.</p>
+<span class="sync-anchor" data-block="201" data-line="311"></span><h3>Selection persistence across the file browser</h3>
+<span class="sync-anchor" data-block="202" data-line="313"></span><p>When you click <strong>Export Selected</strong>, SpecIO remembers the names of currently selected objects and uses them if the file browser changes the active selection. You can click the button, navigate the file dialog, and the export will still target the objects you had highlighted in the viewport.</p>
+<span class="sync-anchor" data-block="203" data-line="315"></span><h3>Export settings</h3>
+<span class="sync-anchor" data-block="204" data-line="317"></span><h4>Scale</h4>
+<span class="sync-anchor" data-block="205" data-line="319"></span><p>Multiplier from Blender units to SVG user units. Default <code>1.0</code>.</p>
+<span class="sync-anchor" data-block="206" data-line="321"></span><h4>Precision</h4>
+<span class="sync-anchor" data-block="207" data-line="323"></span><p>Decimal places written for SVG numbers. Default <code>3</code>. Range <code>0</code> to <code>10</code>. Lower values produce smaller files at the cost of geometric precision.</p>
+<span class="sync-anchor" data-block="208" data-line="325"></span><h4>Default Fill</h4>
+<span class="sync-anchor" data-block="209" data-line="327"></span><p>Fallback fill color used when an exported object has neither a preserved SVG fill (from import) nor a Blender material color to derive from. Default medium gray.</p>
+<span class="sync-anchor" data-block="210" data-line="329"></span><h4>Apply Stroke</h4>
+<span class="sync-anchor" data-block="211" data-line="331"></span><p>When <strong>on</strong>, exported objects without an explicit SVG stroke get a default stroke applied. Off by default. The <strong>Stroke Color</strong> and <strong>Stroke Width</strong> fields below it become editable.</p>
+<span class="sync-anchor" data-block="212" data-line="333"></span><h4>Images</h4>
+<span class="sync-anchor" data-block="213" data-line="335"></span><p>How to write <code>&lt;image&gt;</code> elements:</p>
+<span class="sync-anchor" data-block="214" data-line="337"></span><ul>
+<li>
+<span class="sync-anchor" data-block="215" data-line="337"></span><strong>Embed</strong> (default) — base64-encode the image bytes inline in the SVG file. Self-contained file; larger size.</li>
+<li>
+<span class="sync-anchor" data-block="216" data-line="338"></span><strong>Link</strong> — write a relative file path reference. Smaller SVG; requires the linked image to stay alongside the SVG.</li>
+</ul>
+<span class="sync-anchor" data-block="217" data-line="340"></span><h4>Cull to Camera, Mesh Color</h4>
+<span class="sync-anchor" data-block="218" data-line="342"></span><p>See <a href="#camera-projected-export">Camera-projected export</a>.</p>
+<span class="sync-anchor" data-block="219" data-line="344"></span><h3>Round-trip behavior</h3>
+<span class="sync-anchor" data-block="220" data-line="346"></span><p>When you export objects that were originally imported by SpecIO:</p>
+<span class="sync-anchor" data-block="221" data-line="348"></span><ul>
+<li>
+<span class="sync-anchor" data-block="222" data-line="348"></span>SVG ids are preserved.</li>
+<li>
+<span class="sync-anchor" data-block="223" data-line="349"></span>Sibling order from the original document is respected.</li>
+<li>
+<span class="sync-anchor" data-block="224" data-line="350"></span>Group hierarchy is reconstructed from collection nesting.</li>
+<li>
+<span class="sync-anchor" data-block="225" data-line="351"></span>Imported gradients are written back into a <code>&lt;defs&gt;</code> block.</li>
+<li>
+<span class="sync-anchor" data-block="226" data-line="352"></span>Stroke helper objects automatically rejoin their fill on export — you do not need to deselect them.</li>
+</ul>
+<span class="sync-anchor" data-block="227" data-line="354"></span><p>When you export objects you created in Blender (no SpecIO import history):</p>
+<span class="sync-anchor" data-block="228" data-line="356"></span><ul>
+<li>
+<span class="sync-anchor" data-block="229" data-line="356"></span>Object names become SVG ids.</li>
+<li>
+<span class="sync-anchor" data-block="230" data-line="357"></span>Collections become <code>&lt;g&gt;</code> groups.</li>
+<li>
+<span class="sync-anchor" data-block="231" data-line="358"></span>Material colors (or the <strong>Default Fill</strong>) become SVG fills.</li>
+<li>
+<span class="sync-anchor" data-block="232" data-line="359"></span>Output is deterministic — re-exporting the same scene produces the same SVG when scene data is unchanged.</li>
+</ul>
+<span class="sync-anchor" data-block="233" data-line="361"></span><h3>What does not export</h3>
+<span class="sync-anchor" data-block="234" data-line="363"></span><ul>
+<li>
+<span class="sync-anchor" data-block="235" data-line="363"></span>Modifiers (Subsurf, Bevel, etc. on curves) are not evaluated for export. The exported path uses the source spline geometry. Apply modifiers first if you need them in the output.</li>
+<li>
+<span class="sync-anchor" data-block="236" data-line="364"></span>Animation, drivers, and constraints do not export.</li>
+<li>
+<span class="sync-anchor" data-block="237" data-line="365"></span>Shape keys and grease pencil are not supported.</li>
+<li>
+<span class="sync-anchor" data-block="238" data-line="366"></span>Mesh exports do not write 3D depth information; they are flat 2D silhouettes only.</li>
+</ul>
+<span class="sync-anchor" data-block="239" data-line="368"></span><hr>
+<span class="sync-anchor" data-block="240" data-line="370"></span><h2>5. Tools</h2>
+<span class="sync-anchor" data-block="241" data-line="372"></span><p>The <strong>Tools</strong> sub-panel contains two curve utilities.</p>
+<span class="sync-anchor" data-block="242" data-line="374"></span><h3>Copy Active Curve Settings</h3>
+<span class="sync-anchor" data-block="243" data-line="376"></span><p>Copies curve display settings from the active curve onto every other selected curve. Each target curve keeps its own splines while picking up shared display, extrude, bevel, and fill settings.</p>
+<span class="sync-anchor" data-block="244" data-line="378"></span><p>What gets copied:</p>
+<span class="sync-anchor" data-block="245" data-line="380"></span><ul>
+<li>
+<span class="sync-anchor" data-block="246" data-line="380"></span>2D / 3D mode</li>
+<li>
+<span class="sync-anchor" data-block="247" data-line="381"></span>Extrude depth</li>
+<li>
+<span class="sync-anchor" data-block="248" data-line="382"></span>Bevel depth, bevel resolution, bevel object/profile</li>
+<li>
+<span class="sync-anchor" data-block="249" data-line="383"></span>Fill mode</li>
+<li>
+<span class="sync-anchor" data-block="250" data-line="384"></span>Resolution settings</li>
+<li>
+<span class="sync-anchor" data-block="251" data-line="385"></span>Twist mode and smoothing</li>
+<li>
+<span class="sync-anchor" data-block="252" data-line="386"></span>Other curve display flags</li>
+</ul>
+<span class="sync-anchor" data-block="253" data-line="388"></span><p>What is <strong>not</strong> copied: the actual spline geometry, materials, animation, or shape keys.</p>
+<span class="sync-anchor" data-block="254" data-line="390"></span><h4>When to use it</h4>
+<span class="sync-anchor" data-block="255" data-line="392"></span><p>After importing or authoring multiple curves and you want them all to share the same extrusion / bevel / 2D-3D mode without re-clicking through the properties for each one. Common workflow: tweak one curve’s settings until it looks right, then propagate.</p>
+<span class="sync-anchor" data-block="256" data-line="394"></span><h4>Running it</h4>
+<span class="sync-anchor" data-block="257" data-line="396"></span><ol>
+<li>
+<span class="sync-anchor" data-block="258" data-line="396"></span>Select all the curves you want to <strong>change</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="259" data-line="397"></span>Make the curve whose settings you want to <strong>copy</strong> the active object (last clicked, brighter outline).</li>
+<li>
+<span class="sync-anchor" data-block="260" data-line="398"></span>Open the <strong>SVG</strong> sidebar tab and expand <strong>Tools</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="261" data-line="399"></span>Click <strong>Copy Active Curve Settings</strong>.</li>
+</ol>
+<span class="sync-anchor" data-block="262" data-line="401"></span><h4>Status messages</h4>
+<span class="sync-anchor" data-block="263" data-line="403"></span><table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th>Message</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Copied to N targets</td>
+<td><em>Copied active curve settings to N target(s)</em></td>
+</tr>
+<tr>
+<td>Copied with some skipped (linked data)</td>
+<td><em>Copied… ; skipped M linked target(s)</em></td>
+</tr>
+<tr>
+<td>Active object missing or not a curve</td>
+<td>Error: <em>Active object must be a curve source</em></td>
+</tr>
+<tr>
+<td>No other curves selected</td>
+<td>Error: <em>Select at least one target curve and make the source curve active</em></td>
+</tr>
+<tr>
+<td>All targets share the source’s data</td>
+<td>Warning: <em>Selected target curves already share the active curve data</em></td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="264" data-line="411"></span><p>The “linked” case happens when targets were created via <code>Object &gt; Link/Transfer Data &gt; Link Object Data</code> (or <code>Alt+D</code>-style instancing). Those targets already mirror every change to the source, so copying would do nothing.</p>
+<span class="sync-anchor" data-block="265" data-line="413"></span><h3>Split Selected Path</h3>
+<span class="sync-anchor" data-block="266" data-line="415"></span><p>Splits the active curve’s splines into separate Blender objects. The split is smart — it uses the same logic as <strong>Intelligent Split Paths</strong> during import, so nested contour groups (an outer ring with its inner holes) stay grouped together instead of becoming one object per spline.</p>
+<span class="sync-anchor" data-block="267" data-line="417"></span><p>The new objects are placed in a new collection named after the source object.</p>
+<span class="sync-anchor" data-block="268" data-line="419"></span><h4>When to use it</h4>
+<span class="sync-anchor" data-block="269" data-line="421"></span><ul>
+<li>
+<span class="sync-anchor" data-block="270" data-line="421"></span>After importing an SVG with <strong>Intelligent Split Paths</strong> turned off, when a complex multi-spline path needs separating after the fact.</li>
+<li>
+<span class="sync-anchor" data-block="271" data-line="422"></span>When you want to edit individual contours of a compound path independently.</li>
+<li>
+<span class="sync-anchor" data-block="272" data-line="423"></span>When you need to apply different materials, modifiers, or transforms to subsets of a multi-spline curve.</li>
+</ul>
+<span class="sync-anchor" data-block="273" data-line="425"></span><h4>Running it</h4>
+<span class="sync-anchor" data-block="274" data-line="427"></span><ol>
+<li>
+<span class="sync-anchor" data-block="275" data-line="427"></span>Select a single curve object that contains <strong>at least two splines</strong>. Make sure it is the active object.</li>
+<li>
+<span class="sync-anchor" data-block="276" data-line="428"></span>Open the <strong>SVG</strong> sidebar tab and expand <strong>Tools</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="277" data-line="429"></span>Click <strong>Split Selected Path</strong>.</li>
+</ol>
+<span class="sync-anchor" data-block="278" data-line="431"></span><p>After running:</p>
+<span class="sync-anchor" data-block="279" data-line="433"></span><ul>
+<li>
+<span class="sync-anchor" data-block="280" data-line="433"></span>All split parts are selected.</li>
+<li>
+<span class="sync-anchor" data-block="281" data-line="434"></span>The first split part becomes the active object.</li>
+<li>
+<span class="sync-anchor" data-block="282" data-line="435"></span>The status bar reports how many objects were created and the new collection name.</li>
+</ul>
+<span class="sync-anchor" data-block="283" data-line="437"></span><h4>Errors</h4>
+<span class="sync-anchor" data-block="284" data-line="439"></span><table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No active object, or active object is not a curve</td>
+<td>Error: <em>Select a curve object to split</em></td>
+</tr>
+<tr>
+<td>Active curve has only one spline</td>
+<td>Error: <em>Selected curve must contain at least two splines</em></td>
+</tr>
+<tr>
+<td>Splitter ran but produced no parts</td>
+<td>Warning: <em>No split parts were created</em></td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="285" data-line="445"></span><p>A single <code>Ctrl+Z</code> removes the new collection and split objects and restores the original curve.</p>
+<span class="sync-anchor" data-block="286" data-line="447"></span><hr>
+<span class="sync-anchor" data-block="287" data-line="449"></span><h2>6. Managed Gradient Workflow</h2>
+<span class="sync-anchor" data-block="288" data-line="451"></span><p>SpecIO can both <em>reconstruct</em> SVG gradients on import and <em>author</em> them in Blender for export. The authoring side is called the <strong>managed gradient workflow</strong>: assign a SpecIO-managed material to a curve, edit its parameters in the sidebar, and on export the material is written back as a real SVG <code>&lt;linearGradient&gt;</code> or <code>&lt;radialGradient&gt;</code>.</p>
+<span class="sync-anchor" data-block="289" data-line="453"></span><p>The managed material also previews in Blender (Material Preview / Eevee), so you can iterate visually before exporting.</p>
+<span class="sync-anchor" data-block="290" data-line="455"></span><h3>When to use it</h3>
+<span class="sync-anchor" data-block="291" data-line="457"></span><ul>
+<li>
+<span class="sync-anchor" data-block="292" data-line="457"></span>You want to draw a gradient-filled shape in Blender for SVG output.</li>
+<li>
+<span class="sync-anchor" data-block="293" data-line="458"></span>An imported SVG gradient needs editing.</li>
+<li>
+<span class="sync-anchor" data-block="294" data-line="459"></span>You want round-trip control over gradient ids written into the SVG.</li>
+</ul>
+<span class="sync-anchor" data-block="295" data-line="461"></span><h3>Assigning a managed gradient</h3>
+<span class="sync-anchor" data-block="296" data-line="463"></span><ol>
+<li>
+<span class="sync-anchor" data-block="297" data-line="463"></span>Select one or more curve objects in the 3D Viewport.</li>
+<li>
+<span class="sync-anchor" data-block="298" data-line="464"></span>Open the <strong>SVG</strong> sidebar tab and expand the <strong>Gradient Material</strong> sub-panel.</li>
+<li>
+<span class="sync-anchor" data-block="299" data-line="465"></span>Click <strong>Assign SpecIO Gradient</strong>.</li>
+</ol>
+<span class="sync-anchor" data-block="300" data-line="467"></span><p>Each selected curve gets a new managed material placed in slot 0 (replacing whatever was in slot 0). Defaults: linear gradient, fill paint target, white-to-dark-gray, full opacity, pad spread, anchored horizontally across the object.</p>
+<span class="sync-anchor" data-block="301" data-line="469"></span><p>If you select no curves and click the button, the operator reports <em>“Select at least one curve object”</em>.</p>
+<span class="sync-anchor" data-block="302" data-line="471"></span><p>The status bar reports <em>“Assigned SpecIO gradient material to N object(s)”</em> on success.</p>
+<span class="sync-anchor" data-block="303" data-line="473"></span><h3>Editing the managed gradient</h3>
+<span class="sync-anchor" data-block="304" data-line="475"></span><p>With a curve selected whose first material slot holds a managed gradient, the <strong>Gradient Material</strong> sub-panel shows the editor:</p>
+<span class="sync-anchor" data-block="305" data-line="477"></span><h4>Top row</h4>
+<span class="sync-anchor" data-block="306" data-line="479"></span><ul>
+<li>
+<span class="sync-anchor" data-block="307" data-line="479"></span><strong>Material:</strong> <em>(label only — shows the name of the active material being edited)</em></li>
+<li>
+<span class="sync-anchor" data-block="308" data-line="480"></span><strong>Managed Gradient</strong> — toggle SpecIO gradient management on this material. When off, the material is treated as a regular Blender material at export time.</li>
+</ul>
+<span class="sync-anchor" data-block="309" data-line="482"></span><h4>Identification and behavior</h4>
+<span class="sync-anchor" data-block="310" data-line="484"></span><ul>
+<li>
+<span class="sync-anchor" data-block="311" data-line="484"></span><strong>Paint Target</strong> — <code>Fill</code> or <code>Stroke</code>. Determines whether this material exports as the SVG fill or stroke. Default <code>Fill</code>.</li>
+<li>
+<span class="sync-anchor" data-block="312" data-line="485"></span><strong>Gradient ID</strong> — optional override for the SVG gradient id. Leave blank to derive automatically from the material name.</li>
+<li>
+<span class="sync-anchor" data-block="313" data-line="486"></span><strong>Type</strong> — <code>Linear</code> or <code>Radial</code>.</li>
+<li>
+<span class="sync-anchor" data-block="314" data-line="487"></span><strong>Spread</strong> — <code>Pad</code> (clamp at the ends), <code>Repeat</code> (tile the pattern), or <code>Reflect</code> (mirror-tile). Default <code>Pad</code>.</li>
+</ul>
+<span class="sync-anchor" data-block="315" data-line="489"></span><h4>Color stops</h4>
+<span class="sync-anchor" data-block="316" data-line="491"></span><p>The managed gradient editor exposes <strong>two stops</strong> (start and end). Each has color, alpha, and offset (0…1).</p>
+<span class="sync-anchor" data-block="317" data-line="493"></span><ul>
+<li>
+<span class="sync-anchor" data-block="318" data-line="493"></span><strong>Start Color</strong>, <strong>Start Alpha</strong>, <strong>Start Offset</strong> (default offset <code>0.0</code>)</li>
+<li>
+<span class="sync-anchor" data-block="319" data-line="494"></span><strong>End Color</strong>, <strong>End Alpha</strong>, <strong>End Offset</strong> (default offset <code>1.0</code>)</li>
+</ul>
+<span class="sync-anchor" data-block="320" data-line="496"></span><h4>Linear gradient geometry</h4>
+<span class="sync-anchor" data-block="321" data-line="498"></span><p>When <strong>Type = Linear</strong>:</p>
+<span class="sync-anchor" data-block="322" data-line="500"></span><ul>
+<li>
+<span class="sync-anchor" data-block="323" data-line="500"></span><strong>X1</strong>, <strong>Y1</strong> — start point of the gradient line</li>
+<li>
+<span class="sync-anchor" data-block="324" data-line="501"></span><strong>X2</strong>, <strong>Y2</strong> — end point</li>
+</ul>
+<span class="sync-anchor" data-block="325" data-line="503"></span><p>Defaults: <code>(0,0)</code> to <code>(1,0)</code> (left-to-right horizontal).</p>
+<span class="sync-anchor" data-block="326" data-line="505"></span><h4>Radial gradient geometry</h4>
+<span class="sync-anchor" data-block="327" data-line="507"></span><p>When <strong>Type = Radial</strong>:</p>
+<span class="sync-anchor" data-block="328" data-line="509"></span><ul>
+<li>
+<span class="sync-anchor" data-block="329" data-line="509"></span><strong>Center X</strong>, <strong>Center Y</strong> — center of the gradient circle (default <code>0.5, 0.5</code>)</li>
+<li>
+<span class="sync-anchor" data-block="330" data-line="510"></span><strong>Radius</strong> — radius of the gradient circle (default <code>0.5</code>)</li>
+<li>
+<span class="sync-anchor" data-block="331" data-line="511"></span><strong>Focal X</strong>, <strong>Focal Y</strong> — focal point inside the circle, where 0% offset begins (default <code>0.5, 0.5</code>)</li>
+</ul>
+<span class="sync-anchor" data-block="332" data-line="513"></span><h3>How edits propagate</h3>
+<span class="sync-anchor" data-block="333" data-line="515"></span><p>Every property in the managed gradient editor updates <strong>live</strong>. When you change any value, the underlying material’s preview updates and the gradient is ready for the next export. There is no separate “Apply” step.</p>
+<span class="sync-anchor" data-block="334" data-line="517"></span><h3>Importing existing gradients</h3>
+<span class="sync-anchor" data-block="335" data-line="519"></span><p>When SpecIO imports an SVG that contains <code>&lt;linearGradient&gt;</code> or <code>&lt;radialGradient&gt;</code> definitions:</p>
+<span class="sync-anchor" data-block="336" data-line="521"></span><ul>
+<li>
+<span class="sync-anchor" data-block="337" data-line="521"></span>The gradient is parsed and its full data (stops, transform, spread method, geometry) is stored on the assigned Blender material.</li>
+<li>
+<span class="sync-anchor" data-block="338" data-line="522"></span>A node tree is built so the gradient previews in Blender.</li>
+<li>
+<span class="sync-anchor" data-block="339" data-line="523"></span>On export, the original gradient is written back to the SVG <code>&lt;defs&gt;</code> block — multi-stop gradients survive a roundtrip even though the panel UI only edits two stops directly.</li>
+</ul>
+<span class="sync-anchor" data-block="340" data-line="525"></span><h3>Limits</h3>
+<span class="sync-anchor" data-block="341" data-line="527"></span><ul>
+<li>
+<span class="sync-anchor" data-block="342" data-line="527"></span>One material slot per curve is read on export (slot 0). Move your gradient material into slot 0 if it isn’t already.</li>
+<li>
+<span class="sync-anchor" data-block="343" data-line="528"></span>The panel exposes two color stops; multi-stop gradients survive roundtrip but cannot be edited in the UI.</li>
+<li>
+<span class="sync-anchor" data-block="344" data-line="529"></span>Gradient transforms are preserved on roundtrip but not editable in the UI.</li>
+<li>
+<span class="sync-anchor" data-block="345" data-line="530"></span>Mesh objects and text objects do not currently use managed gradient materials for export — they fall back to material color sampling.</li>
+</ul>
+<span class="sync-anchor" data-block="346" data-line="532"></span><hr>
+<span class="sync-anchor" data-block="347" data-line="534"></span><h2>7. Settings Reference</h2>
+<span class="sync-anchor" data-block="348" data-line="536"></span><p>SpecIO has two layers of settings:</p>
+<span class="sync-anchor" data-block="349" data-line="538"></span><ol>
+<li>
+<span class="sync-anchor" data-block="350" data-line="538"></span><strong>Addon preferences</strong> — global defaults applied to new scenes. Edited in <code>Edit &gt; Preferences &gt; Add-ons &gt; SpecIO</code> (or via the <strong>Open Preferences</strong> button in the <strong>Addon</strong> sub-panel).</li>
+<li>
+<span class="sync-anchor" data-block="351" data-line="539"></span><strong>Scene settings</strong> — per-scene values used by the import and export operators. Edited in the <strong>IMPORT</strong> and <strong>EXPORT</strong> sections of the SVG sidebar.</li>
+</ol>
+<span class="sync-anchor" data-block="352" data-line="541"></span><p>When you first interact with SpecIO in a new scene, the addon preferences are copied into the scene. After that, scene values are independent. Click <strong>Reset Scene Defaults</strong> in the <strong>Addon</strong> sub-panel to re-sync from preferences.</p>
+<span class="sync-anchor" data-block="353" data-line="543"></span><h3>Addon preferences</h3>
+<span class="sync-anchor" data-block="354" data-line="545"></span><p><code>Edit &gt; Preferences &gt; Extensions &gt; SpecIO</code>. Three sections.</p>
+<span class="sync-anchor" data-block="355" data-line="547"></span><h4>Import defaults</h4>
+<span class="sync-anchor" data-block="356" data-line="549"></span><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Default Import Scale</td>
+<td><code>1.0</code></td>
+<td><code>0.001</code>–<code>1000.0</code></td>
+</tr>
+<tr>
+<td>Default Resolution</td>
+<td><code>64</code></td>
+<td><code>1</code>–<code>512</code></td>
+</tr>
+<tr>
+<td>Default Height Mode</td>
+<td>Per Object</td>
+<td>Flat / Per Object / Per Layer</td>
+</tr>
+<tr>
+<td>Default Height Step Ratio</td>
+<td><code>0.001</code></td>
+<td><code>0.0</code>–<code>100.0</code></td>
+</tr>
+<tr>
+<td>Default Stroke Clearance Ratio</td>
+<td><code>0.001</code></td>
+<td><code>0.0</code>–<code>100.0</code></td>
+</tr>
+<tr>
+<td>Default Create Stroke Objects</td>
+<td>On</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>Default Intelligent Split Paths</td>
+<td>On</td>
+<td>toggle</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="357" data-line="559"></span><h4>Export defaults</h4>
+<span class="sync-anchor" data-block="358" data-line="561"></span><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Default Export Scale</td>
+<td><code>1.0</code></td>
+<td><code>0.001</code>–<code>1000.0</code></td>
+</tr>
+<tr>
+<td>Precision</td>
+<td><code>3</code></td>
+<td><code>0</code>–<code>10</code></td>
+</tr>
+<tr>
+<td>Default Fill Color</td>
+<td>medium gray</td>
+<td>RGB</td>
+</tr>
+<tr>
+<td>Apply Stroke On Export</td>
+<td>Off</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>Default Stroke Color</td>
+<td>black</td>
+<td>RGB</td>
+</tr>
+<tr>
+<td>Default Stroke Width</td>
+<td><code>1.0</code></td>
+<td><code>0.001</code>–<code>1000.0</code></td>
+</tr>
+<tr>
+<td>Cull to Camera on Export</td>
+<td>On</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>Default Mesh Color Mode</td>
+<td>Material Heuristic</td>
+<td>Material Heuristic / Sample Final Camera Color</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="359" data-line="572"></span><h4>Library settings</h4>
+<span class="sync-anchor" data-block="360" data-line="574"></span><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Use SVGElements Library</td>
+<td>On</td>
+<td>Reserved toggle for an optional SVG parser library. Leave on.</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="361" data-line="578"></span><h3>Scene settings</h3>
+<span class="sync-anchor" data-block="362" data-line="580"></span><p>These appear in the <strong>IMPORT</strong> and <strong>EXPORT</strong> sections of the SVG sidebar. They take their initial values from the addon preferences above.</p>
+<span class="sync-anchor" data-block="363" data-line="582"></span><table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Field</th>
+<th>Default</th>
+<th>Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IMPORT</td>
+<td>Scale</td>
+<td><code>1.0</code></td>
+<td><code>0.001</code>–<code>1000.0</code></td>
+</tr>
+<tr>
+<td>IMPORT</td>
+<td>Resolution</td>
+<td><code>64</code></td>
+<td><code>1</code>–<code>512</code></td>
+</tr>
+<tr>
+<td>IMPORT</td>
+<td>Height</td>
+<td>Per Object</td>
+<td>Flat / Per Object / Per Layer</td>
+</tr>
+<tr>
+<td>IMPORT</td>
+<td>Height Step Ratio</td>
+<td><code>0.001</code></td>
+<td><code>0.0</code>–<code>100.0</code></td>
+</tr>
+<tr>
+<td>IMPORT</td>
+<td>Stroke Overlay Ratio</td>
+<td><code>0.001</code></td>
+<td><code>0.0</code>–<code>100.0</code></td>
+</tr>
+<tr>
+<td>IMPORT</td>
+<td>Create Stroke Objects</td>
+<td>On</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>IMPORT</td>
+<td>Intelligent Split Paths</td>
+<td>On</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Scale</td>
+<td><code>1.0</code></td>
+<td><code>0.001</code>–<code>1000.0</code></td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Precision</td>
+<td><code>3</code></td>
+<td><code>0</code>–<code>10</code></td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Default Fill</td>
+<td>medium gray</td>
+<td>RGB</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Apply Stroke</td>
+<td>Off</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Stroke Color</td>
+<td>black</td>
+<td>RGB</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Stroke Width</td>
+<td><code>1.0</code></td>
+<td><code>0.001</code>–<code>1000.0</code></td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Images</td>
+<td>Embed</td>
+<td>Embed / Link</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Cull to Camera</td>
+<td>On</td>
+<td>toggle</td>
+</tr>
+<tr>
+<td>EXPORT</td>
+<td>Mesh Color</td>
+<td>Material Heuristic</td>
+<td>Material Heuristic / Sample Final Camera Color</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="364" data-line="601"></span><h3>Managed gradient material settings</h3>
+<span class="sync-anchor" data-block="365" data-line="603"></span><p>Visible in the <strong>Gradient Material</strong> sub-panel when the active object’s first material slot holds a managed gradient.</p>
+<span class="sync-anchor" data-block="366" data-line="605"></span><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Managed Gradient</td>
+<td>Off</td>
+<td>Master toggle for SpecIO gradient management</td>
+</tr>
+<tr>
+<td>Paint Target</td>
+<td>Fill</td>
+<td>Fill or Stroke</td>
+</tr>
+<tr>
+<td>Gradient ID</td>
+<td><em>(blank)</em></td>
+<td>Optional explicit SVG id</td>
+</tr>
+<tr>
+<td>Type</td>
+<td>Linear</td>
+<td>Linear or Radial</td>
+</tr>
+<tr>
+<td>Spread</td>
+<td>Pad</td>
+<td>Pad / Repeat / Reflect</td>
+</tr>
+<tr>
+<td>Start Color</td>
+<td>white</td>
+<td>RGB</td>
+</tr>
+<tr>
+<td>Start Alpha</td>
+<td><code>1.0</code></td>
+<td><code>0.0</code>–<code>1.0</code></td>
+</tr>
+<tr>
+<td>Start Offset</td>
+<td><code>0.0</code></td>
+<td><code>0.0</code>–<code>1.0</code></td>
+</tr>
+<tr>
+<td>End Color</td>
+<td>very dark gray</td>
+<td>RGB</td>
+</tr>
+<tr>
+<td>End Alpha</td>
+<td><code>1.0</code></td>
+<td><code>0.0</code>–<code>1.0</code></td>
+</tr>
+<tr>
+<td>End Offset</td>
+<td><code>1.0</code></td>
+<td><code>0.0</code>–<code>1.0</code></td>
+</tr>
+<tr>
+<td>X1 / Y1 / X2 / Y2 (Linear)</td>
+<td><code>(0, 0)</code> to <code>(1, 0)</code></td>
+<td>Each axis <code>-4.0</code>–<code>4.0</code></td>
+</tr>
+<tr>
+<td>Center X / Y, Radius, Focal X / Y (Radial)</td>
+<td>center <code>(0.5, 0.5)</code>, radius <code>0.5</code>, focal <code>(0.5, 0.5)</code></td>
+<td>Position <code>-4.0</code>–<code>4.0</code>, radius <code>0.001</code>–<code>4.0</code></td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="367" data-line="621"></span><hr>
+<span class="sync-anchor" data-block="368" data-line="623"></span><h2>8. SVG Support</h2>
+<span class="sync-anchor" data-block="369" data-line="625"></span><p>A practical, per-feature summary of what SpecIO supports today.</p>
+<span class="sync-anchor" data-block="370" data-line="627"></span><h3>Containers and structure</h3>
+<span class="sync-anchor" data-block="371" data-line="629"></span><table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Import</th>
+<th>Export</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;svg&gt;</code></td>
+<td>✓</td>
+<td>✓</td>
+<td>Root document; <code>viewBox</code> honored for sizing</td>
+</tr>
+<tr>
+<td><code>&lt;g&gt;</code></td>
+<td>✓</td>
+<td>✓</td>
+<td>Becomes a Blender collection; sibling order preserved</td>
+</tr>
+<tr>
+<td><code>&lt;defs&gt;</code></td>
+<td>✓ (indexed)</td>
+<td>✓</td>
+<td>Used for gradients and <code>&lt;use&gt;</code> lookups</td>
+</tr>
+<tr>
+<td><code>&lt;symbol&gt;</code></td>
+<td>✓ (indexed)</td>
+<td>—</td>
+<td>Resolved when referenced by <code>&lt;use&gt;</code></td>
+</tr>
+<tr>
+<td><code>&lt;use href=&quot;#id&quot;&gt;</code></td>
+<td>✓</td>
+<td>—</td>
+<td>Local references only; expanded inline at import time</td>
+</tr>
+<tr>
+<td><code>&lt;style&gt;</code> (CSS block)</td>
+<td>✓</td>
+<td>—</td>
+<td>Parsed and applied at import</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="372" data-line="638"></span><h3>Vector geometry</h3>
+<span class="sync-anchor" data-block="373" data-line="640"></span><table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Import</th>
+<th>Export source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;rect&gt;</code> (incl. rounded corners)</td>
+<td>✓</td>
+<td>Curves</td>
+</tr>
+<tr>
+<td><code>&lt;circle&gt;</code></td>
+<td>✓</td>
+<td>Curves</td>
+</tr>
+<tr>
+<td><code>&lt;ellipse&gt;</code></td>
+<td>✓</td>
+<td>Curves</td>
+</tr>
+<tr>
+<td><code>&lt;line&gt;</code></td>
+<td>✓</td>
+<td>Curves</td>
+</tr>
+<tr>
+<td><code>&lt;polyline&gt;</code></td>
+<td>✓</td>
+<td>Curves</td>
+</tr>
+<tr>
+<td><code>&lt;polygon&gt;</code></td>
+<td>✓</td>
+<td>Curves</td>
+</tr>
+<tr>
+<td><code>&lt;path&gt;</code></td>
+<td>✓</td>
+<td>Curves and Text</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="374" data-line="650"></span><p>Exported geometry is always written as <code>&lt;path&gt;</code> for curves and text, regardless of the source SVG primitive.</p>
+<span class="sync-anchor" data-block="375" data-line="652"></span><h3>Path commands</h3>
+<span class="sync-anchor" data-block="376" data-line="654"></span><p>Supported on both import and export. Lowercase variants (relative coordinates) are equivalent to their uppercase counterparts.</p>
+<span class="sync-anchor" data-block="377" data-line="656"></span><table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>M</code> / <code>m</code></td>
+<td>Move to</td>
+</tr>
+<tr>
+<td><code>L</code> / <code>l</code></td>
+<td>Line to</td>
+</tr>
+<tr>
+<td><code>H</code> / <code>h</code></td>
+<td>Horizontal line</td>
+</tr>
+<tr>
+<td><code>V</code> / <code>v</code></td>
+<td>Vertical line</td>
+</tr>
+<tr>
+<td><code>C</code> / <code>c</code></td>
+<td>Cubic Bezier</td>
+</tr>
+<tr>
+<td><code>S</code> / <code>s</code></td>
+<td>Smooth cubic Bezier</td>
+</tr>
+<tr>
+<td><code>Q</code> / <code>q</code></td>
+<td>Quadratic Bezier</td>
+</tr>
+<tr>
+<td><code>T</code> / <code>t</code></td>
+<td>Smooth quadratic — <em>normalized to cubic</em> on import</td>
+</tr>
+<tr>
+<td><code>A</code> / <code>a</code></td>
+<td>Arc — <em>normalized to cubic</em> on import</td>
+</tr>
+<tr>
+<td><code>Z</code> / <code>z</code></td>
+<td>Close path</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="378" data-line="669"></span><blockquote>
+<span class="sync-anchor" data-block="379" data-line="669"></span><p><strong>Round-trip note:</strong> an SVG that uses <code>T</code> or <code>A</code> will export as cubic curves. The geometry is preserved; the textual command form is not.</p>
+</blockquote>
+<span class="sync-anchor" data-block="380" data-line="671"></span><h3>Text</h3>
+<span class="sync-anchor" data-block="381" data-line="673"></span><table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Import</th>
+<th>Export</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;text&gt;</code> content</td>
+<td>✓</td>
+<td>✓</td>
+<td>Becomes Blender text object; exports as path</td>
+</tr>
+<tr>
+<td><code>x</code> / <code>y</code> position</td>
+<td>✓</td>
+<td>✓</td>
+<td></td>
+</tr>
+<tr>
+<td><code>transform</code></td>
+<td>✓</td>
+<td>✓</td>
+<td>Applied as Blender object transform</td>
+</tr>
+<tr>
+<td><code>font-size</code></td>
+<td>✓</td>
+<td>✓</td>
+<td>Pixels assumed if no unit given</td>
+</tr>
+<tr>
+<td><code>text-anchor</code></td>
+<td>✓</td>
+<td>✓</td>
+<td>Left / Middle / Right alignment</td>
+</tr>
+<tr>
+<td><code>&lt;tspan&gt;</code></td>
+<td>✗</td>
+<td>✗</td>
+<td>Not supported</td>
+</tr>
+<tr>
+<td><code>&lt;textPath&gt;</code></td>
+<td>✗</td>
+<td>✗</td>
+<td>Not supported</td>
+</tr>
+<tr>
+<td>Multi-line / wrapping</td>
+<td>Limited</td>
+<td>Limited</td>
+<td>Single-line text content only</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="382" data-line="684"></span><p>Text objects extruded or beveled in Blender export as path silhouettes when in camera-projected mode.</p>
+<span class="sync-anchor" data-block="383" data-line="686"></span><h3>Raster images</h3>
+<span class="sync-anchor" data-block="384" data-line="688"></span><table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Import</th>
+<th>Export</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local file path (relative or absolute)</td>
+<td>✓</td>
+<td>✓ (Embed or Link mode)</td>
+</tr>
+<tr>
+<td><code>data:image/...;base64,...</code> URIs</td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>http://</code>, <code>https://</code>, <code>ftp://</code></td>
+<td>✗ rejected (security)</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="385" data-line="694"></span><p>Supported image MIME types: PNG, JPEG, WebP, GIF, BMP, TIFF.</p>
+<span class="sync-anchor" data-block="386" data-line="696"></span><h3>Paint and presentation</h3>
+<span class="sync-anchor" data-block="387" data-line="698"></span><table>
+<thead>
+<tr>
+<th>Attribute / style</th>
+<th>Import</th>
+<th>Export</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fill</code> (named, hex, rgb, currentColor, none)</td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>stroke</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>stroke-width</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>stroke-linecap</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>stroke-linejoin</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>fill=&quot;none&quot;</code>, <code>stroke=&quot;none&quot;</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>display=&quot;none&quot;</code>, <code>visibility=&quot;hidden&quot;</code></td>
+<td>✓ (skipped)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Inline <code>style=&quot;...&quot;</code></td>
+<td>✓</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Inherited styles from parent elements</td>
+<td>✓</td>
+<td>—</td>
+</tr>
+<tr>
+<td>CSS <code>&lt;style&gt;</code> rules</td>
+<td>✓</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>fill-rule</code> (<code>evenodd</code>)</td>
+<td>✓</td>
+<td>Partially preserved</td>
+</tr>
+<tr>
+<td><code>opacity</code>, <code>fill-opacity</code>, <code>stroke-opacity</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="388" data-line="713"></span><h3>Gradients</h3>
+<span class="sync-anchor" data-block="389" data-line="715"></span><table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Import</th>
+<th>Export</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;linearGradient&gt;</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>&lt;radialGradient&gt;</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>gradientTransform</code></td>
+<td>✓ preserved</td>
+<td>✓ written back</td>
+</tr>
+<tr>
+<td><code>spreadMethod</code> (pad / repeat / reflect)</td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Multi-stop gradients</td>
+<td>✓</td>
+<td>✓ (UI edits 2 stops)</td>
+</tr>
+<tr>
+<td><code>fill=&quot;url(#id)&quot;</code> / <code>stroke=&quot;url(#id)&quot;</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="390" data-line="724"></span><p>See <a href="#6-managed-gradient-workflow">Managed Gradient Workflow</a> for authoring details.</p>
+<span class="sync-anchor" data-block="391" data-line="726"></span><h3>Transforms</h3>
+<span class="sync-anchor" data-block="392" data-line="728"></span><table>
+<thead>
+<tr>
+<th>Transform</th>
+<th>Import</th>
+<th>Export</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>translate(...)</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>scale(...)</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>rotate(...)</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>matrix(...)</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>skewX(...)</code>, <code>skewY(...)</code></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Nested transforms in <code>&lt;g&gt;</code> chains</td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="393" data-line="737"></span><h3>Units</h3>
+<span class="sync-anchor" data-block="394" data-line="739"></span><table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unitless coordinates</td>
+<td>✓ treated as user units</td>
+</tr>
+<tr>
+<td><code>viewBox</code></td>
+<td>✓ honored for sizing</td>
+</tr>
+<tr>
+<td><code>width</code> / <code>height</code> with units (<code>px</code>, <code>mm</code>, <code>pt</code>, <code>in</code>)</td>
+<td>Partial — full unit conversion not implemented</td>
+</tr>
+<tr>
+<td><code>%</code> values</td>
+<td>✗ not supported</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="395" data-line="746"></span><p>For predictable results, ensure your source SVG uses an explicit <code>viewBox</code> and unitless or pixel coordinates.</p>
+<span class="sync-anchor" data-block="396" data-line="748"></span><h3>Camera-view export (Blender → SVG)</h3>
+<span class="sync-anchor" data-block="397" data-line="750"></span><table>
+<thead>
+<tr>
+<th>Source object</th>
+<th>Supported</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Curves</td>
+<td>✓ (always; projected when in camera view)</td>
+</tr>
+<tr>
+<td>Text</td>
+<td>✓ (projected when in camera view)</td>
+</tr>
+<tr>
+<td>Image planes</td>
+<td>✓ (projected when in camera view)</td>
+</tr>
+<tr>
+<td>Meshes</td>
+<td>✓ — front-facing polygons silhouetted as filled paths</td>
+</tr>
+<tr>
+<td>Grease Pencil</td>
+<td>✗</td>
+</tr>
+<tr>
+<td>Volumes / particles</td>
+<td>✗</td>
+</tr>
+<tr>
+<td>Modifiers (Subsurf, Bevel, etc.)</td>
+<td>✗ — not evaluated for export</td>
+</tr>
+</tbody>
+</table>
+<span class="sync-anchor" data-block="398" data-line="760"></span><h3>Explicitly NOT supported</h3>
+<span class="sync-anchor" data-block="399" data-line="762"></span><p>These elements/features are recognized but ignored, or actively unsupported:</p>
+<span class="sync-anchor" data-block="400" data-line="764"></span><ul>
+<li>
+<span class="sync-anchor" data-block="401" data-line="764"></span><code>&lt;tspan&gt;</code>, <code>&lt;textPath&gt;</code> (text styling beyond simple <code>&lt;text&gt;</code>)</li>
+<li>
+<span class="sync-anchor" data-block="402" data-line="765"></span><code>&lt;clipPath&gt;</code>, <code>&lt;mask&gt;</code> (clipping and masking)</li>
+<li>
+<span class="sync-anchor" data-block="403" data-line="766"></span>SVG filters</li>
+<li>
+<span class="sync-anchor" data-block="404" data-line="767"></span>SVG animation (SMIL)</li>
+<li>
+<span class="sync-anchor" data-block="405" data-line="768"></span><code>&lt;script&gt;</code> content (intentionally not executed)</li>
+<li>
+<span class="sync-anchor" data-block="406" data-line="769"></span>Remote raster images (<code>http://</code>, <code>https://</code>, <code>ftp://</code>)</li>
+<li>
+<span class="sync-anchor" data-block="407" data-line="770"></span>Full unit conversion (<code>mm</code>, <code>pt</code>, <code>in</code>, <code>%</code>)</li>
+<li>
+<span class="sync-anchor" data-block="408" data-line="771"></span>Multi-line text wrapping inside a single <code>&lt;text&gt;</code> element</li>
+<li>
+<span class="sync-anchor" data-block="409" data-line="772"></span>External stylesheet references</li>
+</ul>
+<span class="sync-anchor" data-block="410" data-line="774"></span><p>If your SVG depends on any of these, expect missing or simplified geometry on import. The importer skips unsupported elements rather than fail.</p>
+<span class="sync-anchor" data-block="411" data-line="776"></span><h3>Round-trip predictability</h3>
+<span class="sync-anchor" data-block="412" data-line="778"></span><p>When you export an unmodified SpecIO-imported scene:</p>
+<span class="sync-anchor" data-block="413" data-line="780"></span><ul>
+<li>
+<span class="sync-anchor" data-block="414" data-line="780"></span>Group hierarchy and sibling order match the source</li>
+<li>
+<span class="sync-anchor" data-block="415" data-line="781"></span>SVG ids are preserved</li>
+<li>
+<span class="sync-anchor" data-block="416" data-line="782"></span>Numeric output is stable for the same precision setting</li>
+</ul>
+<span class="sync-anchor" data-block="417" data-line="784"></span><p>Path commands may normalize (<code>T</code> → cubic, <code>A</code> → cubic), so the exported file is geometrically equivalent but not byte-identical to the source.</p>
+<span class="sync-anchor" data-block="418" data-line="786"></span><hr>
+<span class="sync-anchor" data-block="419" data-line="788"></span><h2>9. Troubleshooting</h2>
+<span class="sync-anchor" data-block="420" data-line="790"></span><h3>Install / enable</h3>
+<span class="sync-anchor" data-block="421" data-line="792"></span><h4>The SVG sidebar tab is missing</h4>
+<span class="sync-anchor" data-block="422" data-line="794"></span><ul>
+<li>
+<span class="sync-anchor" data-block="423" data-line="794"></span>Confirm Blender is <strong>5.1 or newer</strong>.</li>
+<li>
+<span class="sync-anchor" data-block="424" data-line="795"></span>Open <code>Edit &gt; Preferences &gt; Extensions</code>, search for “SpecIO”, and verify the checkbox is ticked.</li>
+<li>
+<span class="sync-anchor" data-block="425" data-line="796"></span>Press <code>N</code> in the 3D Viewport — the sidebar may be hidden.</li>
+<li>
+<span class="sync-anchor" data-block="426" data-line="797"></span>The sidebar only shows in <strong>Object Mode</strong>. Switch out of Edit/Sculpt/Pose mode.</li>
+</ul>
+<span class="sync-anchor" data-block="427" data-line="799"></span><h4>Registration errors when enabling</h4>
+<span class="sync-anchor" data-block="428" data-line="801"></span><ul>
+<li>
+<span class="sync-anchor" data-block="429" data-line="801"></span>Make sure no older copy of SpecIO is also installed (a leftover from a manual install can collide with the extension install).</li>
+<li>
+<span class="sync-anchor" data-block="430" data-line="802"></span>Restart Blender after uninstalling stale copies.</li>
+</ul>
+<span class="sync-anchor" data-block="431" data-line="804"></span><h3>Import errors</h3>
+<span class="sync-anchor" data-block="432" data-line="806"></span><h4><em>“SVG file not found: &lt;path&gt;”</em></h4>
+<span class="sync-anchor" data-block="433" data-line="808"></span><p>The file path passed to the importer does not exist. The file may have been moved or deleted between selection and import. Re-pick it in the file browser.</p>
+<span class="sync-anchor" data-block="434" data-line="810"></span><h4><em>“Failed to parse SVG file: &lt;reason&gt;”</em></h4>
+<span class="sync-anchor" data-block="435" data-line="812"></span><p>The XML is malformed. Open the SVG in a text editor or another SVG tool to verify it parses. Common causes: truncated file, mixed encodings, non-XML content saved with a <code>.svg</code> extension.</p>
+<span class="sync-anchor" data-block="436" data-line="814"></span><h4>Imported SVG looks empty</h4>
+<span class="sync-anchor" data-block="437" data-line="816"></span><ul>
+<li>
+<span class="sync-anchor" data-block="438" data-line="816"></span>The file may use only unsupported elements (everything inside <code>&lt;clipPath&gt;</code>, <code>&lt;mask&gt;</code>, or filter chains). See <a href="#8-svg-support">SVG Support</a>.</li>
+<li>
+<span class="sync-anchor" data-block="439" data-line="817"></span>Hidden elements (<code>display:none</code>, <code>visibility:hidden</code>) are skipped intentionally.</li>
+<li>
+<span class="sync-anchor" data-block="440" data-line="818"></span>The geometry may be at extreme coordinates. Press <code>A</code> to select all, then <code>Numpad .</code> to frame everything.</li>
+<li>
+<span class="sync-anchor" data-block="441" data-line="819"></span>If the file uses <code>mm</code> or <code>in</code> units without a <code>viewBox</code>, the imported geometry may be at an unexpected scale. Try setting <strong>Import &gt; Scale</strong> to <code>0.01</code> or the reciprocal of the document size.</li>
+</ul>
+<span class="sync-anchor" data-block="442" data-line="821"></span><h4>Imported colors look wrong</h4>
+<span class="sync-anchor" data-block="443" data-line="823"></span><ul>
+<li>
+<span class="sync-anchor" data-block="444" data-line="823"></span>SVG fills are sRGB; Blender works in linear space. SpecIO converts on import. If colors still look off, check whether the source SVG used <code>currentColor</code> or relied on inherited CSS that the importer simplified.</li>
+<li>
+<span class="sync-anchor" data-block="445" data-line="824"></span>Materials use the imported color as Base Color. Switch Blender to <strong>Material Preview</strong> or <strong>Rendered</strong> view to see fills correctly.</li>
+</ul>
+<span class="sync-anchor" data-block="446" data-line="826"></span><h4>Strokes appear “below” fills, behind the geometry</h4>
+<span class="sync-anchor" data-block="447" data-line="828"></span><p>That’s intentional. The importer creates stroke helper objects placed slightly <em>below</em> the fill in Z, matching SVG’s stroke-under-fill draw order. To change the spacing, adjust <strong>Import &gt; Stroke Overlay Ratio</strong>. To skip stroke helpers entirely, turn off <strong>Import &gt; Create Stroke Objects</strong> before re-importing.</p>
+<span class="sync-anchor" data-block="448" data-line="830"></span><h4>Compound paths render incorrectly (holes filled in)</h4>
+<span class="sync-anchor" data-block="449" data-line="832"></span><p>Turn on <strong>Import &gt; Intelligent Split Paths</strong> and re-import. If the SVG was already imported with this off, run <strong>Tools &gt; Split Selected Path</strong> on the offending curve.</p>
+<span class="sync-anchor" data-block="450" data-line="834"></span><h4><code>&lt;image&gt;</code> elements did not import</h4>
+<span class="sync-anchor" data-block="451" data-line="836"></span><ul>
+<li>
+<span class="sync-anchor" data-block="452" data-line="836"></span>Remote URLs (<code>http://</code>, <code>https://</code>, <code>ftp://</code>) are intentionally skipped for security. Download the images and re-reference them locally.</li>
+<li>
+<span class="sync-anchor" data-block="453" data-line="837"></span>Local image references must resolve relative to the SVG file’s directory. Confirm the linked image actually exists at that relative path.</li>
+</ul>
+<span class="sync-anchor" data-block="454" data-line="839"></span><h3>Export errors</h3>
+<span class="sync-anchor" data-block="455" data-line="841"></span><h4><em>“Active scene camera required for SVG export”</em></h4>
+<span class="sync-anchor" data-block="456" data-line="843"></span><p>You selected a mesh (which only exports via camera projection) without a scene camera set. In <code>Properties &gt; Scene &gt; Scene &gt; Camera</code>, assign a camera, or deselect the mesh and export only curves/text/images.</p>
+<span class="sync-anchor" data-block="457" data-line="845"></span><h4><em>“SVG export requires the active 3D viewport to be in camera perspective”</em></h4>
+<span class="sync-anchor" data-block="458" data-line="847"></span><p>The viewport you are exporting from is not in camera view. Press <code>Numpad 0</code> to switch to the camera view, then click <strong>Export Selected</strong> again.</p>
+<span class="sync-anchor" data-block="459" data-line="849"></span><h4><em>“Select at least one curve, text, or image object to export…”</em></h4>
+<span class="sync-anchor" data-block="460" data-line="851"></span><p>You selected nothing, or selected only objects that SpecIO does not export (armatures, lights, empties). Pick at least one curve, text, image plane, or — with a camera in camera view — a mesh.</p>
+<span class="sync-anchor" data-block="461" data-line="853"></span><h4><em>“Export path must use the .svg extension”</em></h4>
+<span class="sync-anchor" data-block="462" data-line="855"></span><p>The chosen output path does not end in <code>.svg</code>. Add the extension.</p>
+<span class="sync-anchor" data-block="463" data-line="857"></span><h4>Exported SVG is empty or much smaller than expected</h4>
+<span class="sync-anchor" data-block="464" data-line="859"></span><ul>
+<li>
+<span class="sync-anchor" data-block="465" data-line="859"></span>If exporting in camera view, off-screen geometry was culled. Turn off <strong>Export &gt; Cull to Camera</strong> to keep everything.</li>
+<li>
+<span class="sync-anchor" data-block="466" data-line="860"></span>Mesh objects only export front-facing polygons. Rotate the mesh, the camera, or flip face normals if needed.</li>
+<li>
+<span class="sync-anchor" data-block="467" data-line="861"></span>Text objects with empty strings export nothing.</li>
+</ul>
+<span class="sync-anchor" data-block="468" data-line="863"></span><h4>Exported colors look washed out / too dark</h4>
+<span class="sync-anchor" data-block="469" data-line="865"></span><ul>
+<li>
+<span class="sync-anchor" data-block="470" data-line="865"></span>Mesh export defaults to <strong>Material Heuristic</strong>, which reads Base Color directly without lighting. If you want shaded colors, switch <strong>Export &gt; Mesh Color</strong> to <strong>Sample Final Camera Color</strong> — but that requires Eevee to render and is slower.</li>
+<li>
+<span class="sync-anchor" data-block="471" data-line="866"></span>If <strong>Sample Final Camera Color</strong> doesn’t match the viewport, remember that sampling always uses Eevee from the active camera regardless of viewport shading.</li>
+</ul>
+<span class="sync-anchor" data-block="472" data-line="868"></span><h4>Exported file ignores Blender modifiers</h4>
+<span class="sync-anchor" data-block="473" data-line="870"></span><p>Modifier evaluation is not currently part of export. Apply the modifier in Blender (<code>Object &gt; Convert &gt; Mesh</code> / <code>Curve</code>) before exporting.</p>
+<span class="sync-anchor" data-block="474" data-line="872"></span><h3>Round-trip issues</h3>
+<span class="sync-anchor" data-block="475" data-line="874"></span><h4>Path commands changed in the exported file</h4>
+<span class="sync-anchor" data-block="476" data-line="876"></span><p><code>T</code> (smooth quadratic) and <code>A</code> (arc) commands are normalized to cubic Bezier on import, so they export as <code>C</code> / <code>S</code> curves. Geometry is equivalent; the textual command form is not preserved.</p>
+<span class="sync-anchor" data-block="477" data-line="878"></span><h4><code>id</code> attribute changed</h4>
+<span class="sync-anchor" data-block="478" data-line="880"></span><p>Original SVG ids are preserved when stored on the corresponding Blender object/collection. If you renamed the Blender object, the export uses the new name.</p>
+<span class="sync-anchor" data-block="479" data-line="882"></span><h4>Stroke helpers appear in my export selection</h4>
+<span class="sync-anchor" data-block="480" data-line="884"></span><p>You can leave them selected — the exporter automatically skips them and rejoins their stroke style with the matching fill object.</p>
+<span class="sync-anchor" data-block="481" data-line="886"></span><h4>Exported SVG won’t open in Illustrator/Inkscape</h4>
+<span class="sync-anchor" data-block="482" data-line="888"></span><ul>
+<li>
+<span class="sync-anchor" data-block="483" data-line="888"></span>Validate the file with an online SVG validator first.</li>
+<li>
+<span class="sync-anchor" data-block="484" data-line="889"></span>File a reproducible bug in the SpecIO issue tracker with the source <code>.blend</code> and the offending <code>.svg</code>.</li>
+</ul>
+<span class="sync-anchor" data-block="485" data-line="891"></span><h3>Gradient issues</h3>
+<span class="sync-anchor" data-block="486" data-line="893"></span><h4>Assigning a managed gradient overwrote my existing material</h4>
+<span class="sync-anchor" data-block="487" data-line="895"></span><p>The <strong>Assign SpecIO Gradient</strong> operator places the new material in <strong>slot 0</strong>, replacing whatever was there. To keep the original, move it to a different slot before clicking the button — or reassign it after.</p>
+<span class="sync-anchor" data-block="488" data-line="897"></span><h4>Gradient preview in Blender doesn’t match the exported SVG</h4>
+<span class="sync-anchor" data-block="489" data-line="899"></span><ul>
+<li>
+<span class="sync-anchor" data-block="490" data-line="899"></span>Blender renders the gradient through a node tree approximation. Some SVG features (especially complex transforms and multi-stop sequences) may render slightly differently in Blender vs. an SVG renderer.</li>
+<li>
+<span class="sync-anchor" data-block="491" data-line="900"></span>Multi-stop gradients survive a roundtrip but the panel UI only edits two stops. Editing those two stops will discard intermediate stops.</li>
+</ul>
+<span class="sync-anchor" data-block="492" data-line="902"></span><h4>Gradient does not export</h4>
+<span class="sync-anchor" data-block="493" data-line="904"></span><ul>
+<li>
+<span class="sync-anchor" data-block="494" data-line="904"></span>Confirm the material has <strong>Managed Gradient</strong> enabled in the Gradient Material sub-panel.</li>
+<li>
+<span class="sync-anchor" data-block="495" data-line="905"></span>The exporter reads only <strong>slot 0</strong> of each curve. Move the gradient material into slot 0.</li>
+</ul>
+<span class="sync-anchor" data-block="496" data-line="907"></span><h3>Reset to defaults</h3>
+<span class="sync-anchor" data-block="497" data-line="909"></span><p>If the per-scene settings have drifted into a confusing state:</p>
+<span class="sync-anchor" data-block="498" data-line="911"></span><ol>
+<li>
+<span class="sync-anchor" data-block="499" data-line="911"></span>Open the <strong>SVG</strong> sidebar and expand the <strong>Addon</strong> sub-panel.</li>
+<li>
+<span class="sync-anchor" data-block="500" data-line="912"></span>Click <strong>Reset Scene Defaults</strong>.</li>
+</ol>
+<span class="sync-anchor" data-block="501" data-line="914"></span><p>This re-syncs every per-scene SpecIO setting from the addon preferences.</p>
+<span class="sync-anchor" data-block="502" data-line="916"></span><hr>
+<span class="sync-anchor" data-block="503" data-line="918"></span><h2>10. Reporting Bugs</h2>
+<span class="sync-anchor" data-block="504" data-line="920"></span><p>Issues, reproducible bugs, and feature requests:</p>
+<span class="sync-anchor" data-block="505" data-line="922"></span><p><a href="https://github.com/SuddenDevelopment/SpecIO/issues">https://github.com/SuddenDevelopment/SpecIO/issues</a></p>
+<span class="sync-anchor" data-block="506" data-line="924"></span><p>When reporting an import or export bug, include:</p>
+<span class="sync-anchor" data-block="507" data-line="926"></span><ul>
+<li>
+<span class="sync-anchor" data-block="508" data-line="926"></span>the source <code>.svg</code> file (or a minimal reproduction)</li>
+<li>
+<span class="sync-anchor" data-block="509" data-line="927"></span>the Blender version (<code>Help &gt; About</code>)</li>
+<li>
+<span class="sync-anchor" data-block="510" data-line="928"></span>the SpecIO version (visible in <code>Edit &gt; Preferences &gt; Extensions &gt; SpecIO</code>)</li>
+<li>
+<span class="sync-anchor" data-block="511" data-line="929"></span>the exact settings used (screenshot of the IMPORT or EXPORT section of the sidebar)</li>
+<li>
+<span class="sync-anchor" data-block="512" data-line="930"></span>the message printed in Blender’s status bar / console when the operator failed</li>
+</ul>
+
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
+</body>
+</html>
